@@ -200,23 +200,38 @@ Possible skill defect detected — send feedback to the owner?
 Choose **`[S]end`**. Nothing is transmitted without this explicit consent. On
 `[S]end`, loopback calls `submit_feedback` (surfaced in Claude Code as
 `mcp__loopback__submit_feedback`), which re-redacts, validates against the wire
-contract, stamps `anonUserId` + `client.{plugin,harness}`, and POSTs to the configured
-ingest URL with the developer bearer token.
+contract, stamps `client.{plugin,harness}`, and POSTs to the configured ingest
+URL with the developer bearer token. The submitter's identity is resolved
+**server-side** from that token (`records.user_id`) — nothing identifying the
+person is carried on the wire.
 
 ### 6b. Read back the stored record via `GET /feedback`
 
-`GET /feedback` is the first-class read-back that lists **all** stored records.
-It is **admin-only**, so use the `ADMIN_TOKEN` from step 3 (the developer token
-gets `403` here):
+`GET /feedback` is the first-class read-back that lists stored records. It is
+**admin-only**, so use the `ADMIN_TOKEN` from step 3 (the developer token gets
+`403` here):
 
 ```bash
 curl -s -H "Authorization: Bearer $ADMIN_TOKEN" localhost:8080/feedback
+# paginate / filter (default limit=100; limit=0 = all):
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "localhost:8080/feedback?artifact=prd-writer&severity=high&limit=0"
 ```
 
 A successful loop looks like a JSON array containing your record for `artifact.id =
-prd-writer`, carrying a `serverId` (`fb_srv_...`), a stamped `anonUserId`, and
-`client.plugin` like `loopback@0.0.1`. The stored `summary`/
-`evidenceExcerpt` are the redacted text (redaction held — no file paths/secrets).
+prd-writer`, carrying a `serverId` (`fb_srv_...`), a server-added `submitterEmail`
+(the authenticated submitter, resolved from the token — not on the wire), and
+`client.plugin` like `loopback@0.0.1`. The stored `summary`/`evidenceExcerpt` are
+the redacted text (redaction held — no file paths/secrets).
+
+Or use the CLI instead of raw curl (admin `LOOPBACK_TOKEN` +
+`LOOPBACK_INGEST_URL`): `loopback list` (table) or
+`loopback list --format json --all > feedback.json`.
+
+`GET /feedback` supports pagination (`?limit` default 100, `?limit=0` = all,
+`?offset`) and exact-match filters (`artifact`, `severity`, `confidence`,
+`email`) plus an inclusive `received_from`/`received_to` range — see
+`service/README.md`.
 
 The store is **append-only**: send feedback again and the array gains **another**
 record (no dedup/clustering — every received record is kept).

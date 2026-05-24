@@ -5,9 +5,14 @@ Endpoints:
 - POST /feedback         -> the ingest path (auth -> validate -> re-redact ->
                             persist). Append-only: every valid record is STORED.
                             Accepts ANY valid per-user token.
-- GET  /feedback         -> read-back of ALL stored records ("review all feedback
+- GET  /feedback         -> read-back of stored records ("review all feedback
                             received"). Requires a valid ADMIN token (403 if the
-                            token is valid but not admin).
+                            token is valid but not admin). Supports pagination
+                            (?limit default 100, ?limit=0 = all, ?offset) and
+                            exact-match filters (artifact, severity, confidence,
+                            email) plus an inclusive received_from/received_to
+                            range. Each record carries a server-added
+                            ``submitterEmail`` (the authenticated submitter).
 
 Auth model (per-user, hashed-at-rest tokens)
 --------------------------------------------
@@ -52,14 +57,15 @@ from . import db as db_mod
 from . import redact
 from . import tokens as tokens_mod
 from .models import FeedbackRecord, FeedbackResponse
-from .orm import Quarantine, Record
+from .orm import Quarantine, Record, User
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-_MAX_PAGE = 500  # hard cap on `limit` so a single read can't pull the whole store.
+_DEFAULT_PAGE = 100  # default `limit` when the param is absent.
+_SEVERITY_LEVELS = {"low", "medium", "high"}  # shared by severity + confidence.
 
 
 def _parse_pagination(
@@ -67,21 +73,27 @@ def _parse_pagination(
 ) -> "tuple[Optional[int], int, Optional[str]]":
     """Parse/validate the ?limit & ?offset query params for the read-back paths.
 
-    Returns ``(limit, offset, error)``. ``limit=None`` means "no limit" so the
-    default (param-less) call still returns ALL records — the documented "review
-    all feedback received" behavior — making pagination strictly opt-in and
-    backward compatible. Any malformed value yields an ``error`` string that the
-    caller surfaces as 400 (NOT 422; 422 is reserved for redaction-quarantine).
+    Returns ``(limit, offset, error)``. Semantics (Part B):
+    - ``limit`` absent -> default ``_DEFAULT_PAGE`` (100). A param-less read now
+      returns at most 100 records, not the whole corpus.
+    - ``limit=0`` -> ``None`` (UNLIMITED — return ALL records). This is the
+      explicit "give me everything" escape hatch (the CLI's ``--all``).
+    - ``limit < 0`` or non-integer -> 400 error. There is NO upper cap anymore.
+    - ``offset`` absent -> 0; ``offset < 0`` or non-integer -> 400 error.
+
+    Any malformed value yields an ``error`` string that the caller surfaces as
+    400 (NOT 422; 422 is reserved for redaction-quarantine).
     """
-    parsed_limit: Optional[int] = None
+    parsed_limit: Optional[int] = _DEFAULT_PAGE
     if limit is not None:
         try:
             parsed_limit = int(limit)
         except (TypeError, ValueError):
             return None, 0, "limit must be an integer"
-        if parsed_limit < 1:
-            return None, 0, "limit must be >= 1"
-        parsed_limit = min(parsed_limit, _MAX_PAGE)  # clamp, don't error.
+        if parsed_limit < 0:
+            return None, 0, "limit must be >= 0"
+        if parsed_limit == 0:
+            parsed_limit = None  # 0 means unlimited (all records).
 
     parsed_offset = 0
     if offset is not None:
@@ -119,29 +131,55 @@ def _authenticate(session: Session, authorization: Optional[str]) -> Optional[di
 
 def _records_as_wire(
     session: Session,
-    limit: Optional[int] = None,
+    limit: Optional[int] = _DEFAULT_PAGE,
     offset: int = 0,
+    filters: Optional[dict] = None,
 ) -> List[dict]:
     """Return stored records (oldest first), reconstructed in the wire record shape.
 
-    The shape matches ``feedback-record.schema.json`` (plus a server-added
-    ``serverId`` field) so E2E can re-validate stored records against the
-    canonical schema. ``anonUserId`` is no longer carried.
+    The shape matches ``feedback-record.schema.json`` (plus the server-added
+    ``serverId`` and ``submitterEmail`` fields, which live OUTSIDE the wire
+    schema) so E2E can re-validate stored records after popping those two server
+    fields. No client-supplied user identifier is carried.
 
-    With the defaults (``limit=None, offset=0``) this returns ALL records, so
-    param-less callers are unchanged. ``limit``/``offset`` page at the SQL level.
+    ``limit=None`` returns ALL records (the ``?limit=0`` escape hatch); a numeric
+    ``limit``/``offset`` page at the SQL level. ``filters`` is an optional dict of
+    already-validated, exact-match (or range) criteria combined with AND:
+    ``artifact``, ``severity``, ``confidence``, ``email`` (joins ``users``),
+    ``received_from``/``received_to`` (inclusive ``created_at`` range).
     """
-    stmt = select(Record).order_by(Record.created_at)
+    filters = filters or {}
+    # Select the record AND its submitter email in one go (outer join so a record
+    # always renders even if its user row is somehow absent; user_id is NOT NULL
+    # so in practice the email is always present).
+    stmt = (
+        select(Record, User.email)
+        .outerjoin(User, Record.user_id == User.id)
+        .order_by(Record.created_at)
+    )
+    if filters.get("artifact") is not None:
+        stmt = stmt.where(Record.artifact_id == filters["artifact"])
+    if filters.get("severity") is not None:
+        stmt = stmt.where(Record.severity == filters["severity"])
+    if filters.get("confidence") is not None:
+        stmt = stmt.where(Record.confidence == filters["confidence"])
+    if filters.get("email") is not None:
+        stmt = stmt.where(User.email == filters["email"])
+    if filters.get("received_from") is not None:
+        stmt = stmt.where(Record.created_at >= filters["received_from"])
+    if filters.get("received_to") is not None:
+        stmt = stmt.where(Record.created_at <= filters["received_to"])
     if offset:
         stmt = stmt.offset(offset)
     if limit is not None:
         stmt = stmt.limit(limit)
-    rows = session.execute(stmt).scalars().all()
+    rows = session.execute(stmt).all()
     out: List[dict] = []
-    for r in rows:
+    for r, submitter_email in rows:
         out.append({
             "id": r.client_id or r.id,
             "serverId": r.id,
+            "submitterEmail": submitter_email,
             "schemaVersion": r.schema_version,
             "artifact": {
                 k: v for k, v in {
@@ -266,12 +304,23 @@ def create_app(db_path: Optional[str] = None) -> FastAPI:
         authorization: Optional[str] = Header(default=None),
         limit: Optional[str] = None,
         offset: Optional[str] = None,
+        artifact: Optional[str] = None,
+        severity: Optional[str] = None,
+        confidence: Optional[str] = None,
+        email: Optional[str] = None,
+        received_from: Optional[str] = None,
+        received_to: Optional[str] = None,
         session: Session = Depends(get_db),
     ) -> JSONResponse:
         # First-class read-back: "review all feedback received". Reading the whole
         # corpus is an ADMIN action: a valid token is required (else 401) AND it
         # must be admin (else 403 — authenticated but not authorized).
-        # Pagination is opt-in via ?limit & ?offset; param-less => all records.
+        #
+        # Pagination: param-less => first 100 (default); ?limit=0 => all; bad
+        # limit/offset => 400. Filters (all optional, exact match unless noted,
+        # combined with AND): artifact, severity, confidence, email (the user
+        # filter, joins users), received_from/received_to (inclusive created_at
+        # range). Order is created_at (oldest-first).
         identity = _authenticate(session, authorization)
         if identity is None:
             return JSONResponse(status_code=401, content={"detail": "unauthorized"})
@@ -280,7 +329,29 @@ def create_app(db_path: Optional[str] = None) -> FastAPI:
         lim, off, err = _parse_pagination(limit, offset)
         if err:
             return JSONResponse(status_code=400, content={"detail": err})
-        return JSONResponse(status_code=200, content=_records_as_wire(session, lim, off))
+        # Validate the enum filters before querying (bad value -> 400, not silent).
+        if severity is not None and severity not in _SEVERITY_LEVELS:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "severity must be one of low|medium|high"},
+            )
+        if confidence is not None and confidence not in _SEVERITY_LEVELS:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "confidence must be one of low|medium|high"},
+            )
+        filters = {
+            "artifact": artifact,
+            "severity": severity,
+            "confidence": confidence,
+            "email": email,
+            "received_from": received_from,
+            "received_to": received_to,
+        }
+        return JSONResponse(
+            status_code=200,
+            content=_records_as_wire(session, lim, off, filters),
+        )
 
     return app
 

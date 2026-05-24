@@ -98,7 +98,14 @@ section('assembleRecord redacts + stamps harness and validates', () => {
   assert.ok(!('anonUserId' in rec), 'anonUserId must not be stamped');
 });
 
-console.log('\nMCP integration smoke:');
-execFileSync('node', [path.join(__dirname, 'mcp-smoke.js')], { stdio: 'inherit', env: process.env });
+// `loopback list` read path (async: flag->query mapping, table/json renderers,
+// and fetchRecords against a throwaway HTTP server). Runs before the MCP smoke.
+require('./list').run().then(() => {
+  console.log('\nMCP integration smoke:');
+  execFileSync('node', [path.join(__dirname, 'mcp-smoke.js')], { stdio: 'inherit', env: process.env });
 
-console.log('\nALL CLIENT TESTS PASSED');
+  console.log('\nALL CLIENT TESTS PASSED');
+}).catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

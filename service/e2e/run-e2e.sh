@@ -3,10 +3,10 @@
 #
 # Builds + runs the service container, points the plugin's ingest config at it,
 # POSTs a canonical record to the running container (developer token as bearer), then
-# asserts the append-only store kept a schema-valid record (with a server id and
-# the submitter resolved from the token) that is retrievable via GET /feedback.
-# (The full client MCP -> service
-# path is covered by loopback/test/e2e-local.js.)
+# asserts the append-only store kept a schema-valid record (with a server id, the
+# submitter email resolved from the token, and NO anonUserId — identity is
+# server-side now) that is retrievable via GET /feedback. (The full client MCP ->
+# service path is covered by loopback/test/e2e-local.js.)
 #
 # This script bridges Group A (plugin, owned by a sibling worker) and Group B
 # (this service). It is intentionally self-contained and fails loudly with a
@@ -82,10 +82,26 @@ assert recs, 'no records stored'
 v=D(schema)
 for r in recs:
     assert r.get('serverId','').startswith('fb_srv_'), ('missing server id', r)
-    r=dict(r); r.pop('serverId',None)
+    assert r.get('submitterEmail'), ('missing submitter email', r)
+    assert 'anonUserId' not in r, ('anonUserId must be gone from the wire', r)
+    # serverId + submitterEmail are server-added (outside the wire schema); pop
+    # them before validating so additionalProperties:false does not trip.
+    r=dict(r); r.pop('serverId',None); r.pop('submitterEmail',None)
     errs=list(v.iter_errors(r))
     assert not errs, [e.message for e in errs]
 print('stored record(s) schema-valid and retrievable via GET /feedback:', len(recs))
+"
+
+# 4b. A filtered GET should still return the seeded record (artifact=prd-writer,
+#     the fixture's artifact id). Proves the Part-B filters work in-container.
+FILTERED=$(curl -fs -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  "localhost:${PORT}/feedback?artifact=prd-writer&limit=0")
+echo "$FILTERED" | "$VENV/bin/python" -c "
+import json,sys
+recs=json.load(sys.stdin)
+assert recs, 'filtered GET (artifact=prd-writer) returned nothing'
+assert all(r['artifact'].get('id')=='prd-writer' for r in recs), recs
+print('filtered GET (artifact=prd-writer) returned:', len(recs))
 "
 
 echo "E2E PASS: loop closed"

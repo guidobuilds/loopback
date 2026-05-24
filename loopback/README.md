@@ -32,8 +32,8 @@ npx @guidobuilds/loopback setup --ingest-url <url> --token <tok>   # auto-detect
 
 ```
 loopback/                       # npm package @guidobuilds/loopback
-├── core/                       # GENERAL lib: data-dir, redact, anon-id, mutes,
-│                               #   turn-state, session-state, wire (validate+POST)
+├── core/                       # GENERAL lib: data-dir, redact, mutes,
+│                               #   turn-state, session-state, wire (validate+POST+GET)
 │   └── feedback-record.schema.json   # single source-of-truth wire contract
 ├── mcp/
 │   ├── index.js                #   MCP server SOURCE (6 tools)
@@ -62,9 +62,33 @@ loopback/                       # npm package @guidobuilds/loopback
   is **auto-detected at runtime** from the launching harness's environment
   (`AI_AGENT`, else harness-specific markers; omitted if unknown) — nothing is
   configured per harness.
-- Mutable per-machine state (anon-id salt, mutes, turn bookkeeping) lives in the
-  data dir resolved by `core/data-dir.js`: `LOOPBACK_DATA_DIR` → `CLAUDE_PLUGIN_DATA`
+- Mutable per-machine state (mutes, turn bookkeeping) lives in the data dir
+  resolved by `core/data-dir.js`: `LOOPBACK_DATA_DIR` → `CLAUDE_PLUGIN_DATA`
   (Claude Code) → `$XDG_DATA_HOME/loopback` → `~/.local/share/loopback`.
+
+## Reviewing feedback — `loopback list`
+
+`loopback list` reads stored feedback back from the service's admin-only
+`GET /feedback` and renders it as a compact table (default) or pretty JSON. It
+needs an **admin** `LOOPBACK_TOKEN` (or `--token`) and the full `/feedback` URL in
+`LOOPBACK_INGEST_URL` (or `--ingest-url`).
+
+```sh
+# whole corpus as JSON, e.g. to feed to a coding agent
+loopback list --format json --all > feedback.json
+
+# filtered table: high-severity feedback for the prd-writer skill
+loopback list --severity high --artifact prd-writer
+
+# page the results, or filter by submitter / date range
+loopback list --limit 50 --offset 50
+loopback list --email dev@example.com --from 2026-05-01T00:00:00Z --to 2026-05-31T00:00:00Z
+```
+
+Flags: `--format table|json` (default `table`), `--all` (= every record),
+`--limit N` (default 100), `--offset N`, `--artifact ID`, `--severity`,
+`--confidence`, `--email`, `--from`/`--to` (inclusive received-time range),
+`--ingest-url URL`, `--token TOK`. A non-admin token returns a friendly 403.
 
 ## The feedback record contract
 

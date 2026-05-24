@@ -8,6 +8,7 @@
  * Commands:
  *   redact [text...]                 redact stdin (or args) -> stdout
  *   data-dir                         print the resolved data dir
+ *   list [--format table|json] [filters...]   read stored feedback back (admin token)
  *   mute <id> | --is-muted <id> | --list | --unmute <id>
  *   scan-correction [text...]        exit 0 (+"hit") if correction-language present, else 1 (+"miss")
  *   record-write --session <id> --file <path>
@@ -106,6 +107,18 @@ function main() {
       return;
     }
 
+    case 'list': {
+      // Read stored feedback back from the admin-only GET /feedback. Async HTTP
+      // (native fetch); the subcommand owns its own exit codes / error messages.
+      require('./list')
+        .run(rest)
+        .catch((err) => {
+          process.stderr.write('loopback list: ' + (err && err.message ? err.message : err) + '\n');
+          process.exit(1);
+        });
+      return;
+    }
+
     case 'setup':
     case 'uninstall': {
       const setupMod = require('./setup');
@@ -132,6 +145,9 @@ function usage(specific) {
     'loopback ' +
       (specific ||
         'setup [harness...] [--ingest-url URL] [--token TOK] | uninstall [harness...] | ' +
+        'list [--format table|json] [--all] [--limit N] [--offset N] [--artifact ID] ' +
+        '[--severity low|medium|high] [--confidence low|medium|high] [--email ADDR] ' +
+        '[--from ISO] [--to ISO] [--ingest-url URL] [--token TOK] | ' +
         'redact | data-dir | mute | scan-correction | record-write | bump-correction | turn-state') +
       '\n'
   );

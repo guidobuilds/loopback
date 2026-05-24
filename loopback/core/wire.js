@@ -91,4 +91,47 @@ async function postRecord(record, opts) {
   }
 }
 
-module.exports = { schema, validateRecord, assembleRecord, postRecord, newRecordId };
+// Symmetric to postRecord: read records back from the service's GET /feedback.
+// `opts.query` is an object of already-resolved filter/pagination params; only
+// truthy/defined values are serialized into the query string (so unset filters
+// are simply omitted). Returns {ok, body} on 2xx, else {ok:false, error}. The
+// error shape mirrors postRecord, surfacing 401/403 verbatim so the CLI can map
+// them to friendly messages.
+async function fetchRecords(opts) {
+  opts = opts || {};
+  const baseUrl = opts.url;
+  const token = opts.token;
+  if (!baseUrl) return { ok: false, error: 'LOOPBACK_INGEST_URL is not configured' };
+
+  const params = new URLSearchParams();
+  const query = opts.query || {};
+  for (const key of Object.keys(query)) {
+    const value = query[key];
+    if (value === undefined || value === null || value === '') continue;
+    params.append(key, String(value));
+  }
+  const qs = params.toString();
+  const url = qs ? baseUrl + (baseUrl.includes('?') ? '&' : '?') + qs : baseUrl;
+
+  const headers = {};
+  if (token) headers['authorization'] = 'Bearer ' + token;
+
+  try {
+    const res = await fetch(url, { method: 'GET', headers });
+    const text = await res.text();
+    let body;
+    try {
+      body = JSON.parse(text);
+    } catch (_) {
+      body = { raw: text };
+    }
+    if (!res.ok) {
+      return { ok: false, status: res.status, error: `ingest responded ${res.status}: ${text.slice(0, 300)}` };
+    }
+    return { ok: true, body };
+  } catch (err) {
+    return { ok: false, error: 'GET failed: ' + err.message };
+  }
+}
+
+module.exports = { schema, validateRecord, assembleRecord, postRecord, fetchRecords, newRecordId };
