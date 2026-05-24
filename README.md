@@ -1,0 +1,114 @@
+# loopback
+
+> Automated, low-friction feedback for the skills and agents your org ships — Claude Code, OpenCode, Codex.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.0.1--beta-orange.svg)](https://github.com/guidobuilds/loopback/releases)
+
+## The problem
+
+Organizations are increasingly building their own harness — custom **skills, agents, and
+commands** for their coding agents. But improving them depends on users bothering to report
+when something behaves wrong, or even fixing the skill themselves. Most of that signal is
+lost: the user just corrects the output locally and moves on.
+
+**loopback automates the collection of that feedback and removes the friction of sharing it.**
+When a shipped skill or agent produces a defect a user has to correct by hand, loopback turns
+that correction into a de-identified, generalizable lesson and — with one tap of consent —
+sends it to a central store the skill's authors can review.
+
+It is **harness-agnostic** (Claude Code, OpenCode, Codex) and **privacy-first**: nothing leaves
+the machine without explicit per-send confirmation, and no raw content is stored — only a
+synthesized summary and a redacted excerpt.
+
+> ⚠️ Beta (0.0.1). APIs and the wire contract may change before 1.0.
+
+## How it works
+
+1. Deterministic tripwires notice when a user corrects skill/agent output.
+2. A detector skill judges **defect vs. iteration** (precision-biased) and synthesizes a generalizable lesson.
+3. It shows a consent gate with the exact redacted text that would be sent: **[S]end · [E]dit · [D]ecline · [N]ever**.
+4. On `[S]end`, the MCP tool re-redacts, validates, and POSTs to the central service.
+5. The append-only service stores every de-identified record; authors review them via a token-guarded read-back.
+
+## Quickstart
+
+### 1. Run the central service + mint a token
+
+```bash
+git clone https://github.com/guidobuilds/loopback.git
+cd loopback/service
+docker compose up --build -d                 # append-only store; persists to a volume
+docker compose exec loopback-svc python3 issue_token.py --email you@example.com --admin  # reads feedback back
+docker compose exec loopback-svc python3 issue_token.py --email dev@example.com           # client bearer
+```
+
+Auth is per-user, hashed at rest — no shared server token. (No Docker? Run it with `uvicorn` — see
+[DEVELOPMENT.md](DEVELOPMENT.md).)
+
+### 2. Install loopback into your agent — one command
+
+```bash
+npx @guidobuilds/loopback setup \
+  --ingest-url http://localhost:8080/feedback \
+  --token "<the developer token from step 1>"
+```
+
+No marketplace, no manual config. It **auto-detects** your installed agents (or name them, e.g.
+`… setup claude-code opencode`), wires the MCP server + detector skill + `/harness-feedback`
+command (+ hooks on Claude Code), and is safe to re-run. Restart your agent afterward.
+Remove with `npx @guidobuilds/loopback uninstall`.
+
+### 3. Use it
+
+Correct a skill/agent and accept the consent gate — or trigger it manually:
+
+```
+/harness-feedback prd-writer the PRD used a freeform structure instead of the template
+```
+
+Read the stored records back (admin token):
+
+```bash
+curl -s -H "Authorization: Bearer <your admin token>" localhost:8080/feedback
+```
+
+## Reference
+
+**Client** — `loopback setup` bakes `LOOPBACK_INGEST_URL` (ingest endpoint) and `LOOPBACK_TOKEN`
+(per-user bearer) into each harness's MCP config. The originating harness (`client.harness`) is
+auto-detected at runtime — nothing to configure. The published npm package is self-contained
+(the MCP server is a prebuilt, dependency-free bundle).
+
+**Service** — `GET /healthz` · `POST /feedback` (any valid token → validate → re-redact → store)
+· `GET /feedback` (admin-only read-back). Tokens are per-user, hashed, append-only, minted with
+`service/issue_token.py`. `DB_PATH` defaults to `/data/loopback.db` in the image. Full contract:
+[`service/README.md`](service/README.md).
+
+**Wire contract** — `loopback/core/feedback-record.schema.json` is the single source of truth
+(JSON Schema 2020-12), shared by client (ajv) and service (pydantic) and lockstep-tested. It
+carries only a synthesized `summary` and a redacted `evidenceExcerpt` — never raw content.
+
+## Layout
+
+```
+loopback/   # npm package: core + MCP server (bundle) + `loopback setup` installer + skill + command + hooks
+service/    # FastAPI + SQLite append-only ingest service (Docker, tests, e2e)
+tests/      # model-driven detector precision suite
+```
+
+## Status
+
+Beta (0.0.1): the full client loop and the append-only service are implemented and tested.
+**Roadmap:** an artifact/owner registry, dedup/clustering into one living issue per cluster,
+issue fan-out to the owning repo, and stronger auth.
+
+## Contributing
+
+Issues and PRs welcome. Changes to the wire contract must update **both**
+`loopback/core/feedback-record.schema.json` and `service/feedback-record.schema.json` (kept
+identical) and pass `service/tests/test_contract.py`.
+
+## License
+
+[MIT](LICENSE) © 2026 Guido Caffa

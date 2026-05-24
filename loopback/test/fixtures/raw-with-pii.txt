@@ -1,0 +1,9 @@
+The prd-writer skill wrote /Users/guido/dev/harness-improver/prd.md using a freeform structure.
+I had to fix it and email the owner at caffaguido@gmail.com to flag the wrong template.
+My git remote token was ghp_AbCdEf0123456789AbCdEf0123456789xyz and the CI used AKIAIOSFODNN7EXAMPLE.
+The OpenAI key sk-AbCdEf0123456789AbCdEf0123456789 leaked into the log at /home/guido/.config/app/secrets.env.
+Authorization: Bearer eyJhbGciOiJIUzI1Nione.eyJzdWIiOiIxMjM0NeyJ.SflKxwRJSMeKKF2QT4fwpMeJf36
+On Windows the path was C:\Users\guido\Documents\auth.ts and the helper config.yaml lived next to it.
+This excerpt is intentionally long so the length cap is exercised. Padding padding padding padding
+padding padding padding padding padding padding padding padding padding padding padding padding pad
+padding padding padding padding padding padding padding padding padding padding padding padding pad.

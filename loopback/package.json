@@ -1,0 +1,51 @@
+{
+  "name": "@guidobuilds/loopback",
+  "version": "0.0.1",
+  "description": "Harness-agnostic feedback loop for AI coding agents (Claude Code, OpenCode, Codex). One command (`loopback setup`) wires the MCP server + skill + command + hooks into each harness — no marketplace, no manual config.",
+  "type": "commonjs",
+  "bin": {
+    "loopback": "cli/index.js"
+  },
+  "files": [
+    "core",
+    "mcp/server.bundle.js",
+    "cli",
+    "skills",
+    "commands",
+    "hooks",
+    "adapters/opencode/plugins",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "bun build mcp/index.js --target=node --format=cjs --outfile=mcp/server.bundle.js",
+    "test": "node test/run.js && node test/setup-smoke.js",
+    "test:opencode": "bun test/opencode-plugin-smoke.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "feedback",
+    "mcp",
+    "claude-code",
+    "opencode",
+    "codex",
+    "agents",
+    "skills"
+  ],
+  "homepage": "https://github.com/guidobuilds/loopback",
+  "repository": "github:guidobuilds/loopback",
+  "license": "MIT",
+  "author": "Guido Caffa <caffaguido@gmail.com>",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "zod": "^4.4.3"
+  },
+  "packageManager": "pnpm@11.2.2+sha512.36e6621fad506178936455e70247b8808ef4ec25797a9f437a93281a020484e2607f6a469a22e982987c3dbb8866e3071514ab10a4a1749e06edcd1ec118436f"
+}

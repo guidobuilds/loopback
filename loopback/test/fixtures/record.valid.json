@@ -1,0 +1,21 @@
+{
+  "id": "fb_01J8ZQK3M7N2P5R8T1V4W6X9Y0",
+  "schemaVersion": 1,
+  "artifact": {
+    "kind": "skill",
+    "id": "prd-writer",
+    "version": "3.2.0",
+    "repo": "github.com/org/prd-writer"
+  },
+  "summary": "PRDs should use the Problem/Solution/Metrics template; output was freeform.",
+  "workType": "prd-authoring",
+  "evidenceExcerpt": "## Overview … ## Background …",
+  "timestamp": "2026-05-22T17:40:00Z",
+  "anonUserId": "u_8f2a1c9d",
+  "severity": "medium",
+  "confidence": "high",
+  "clusterKey": "prd-writer:prd-authoring:wrong-template",
+  "client": {
+    "plugin": "loopback@0.0.1"
+  }
+}

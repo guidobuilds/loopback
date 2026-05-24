@@ -1,0 +1,7 @@
+{
+  "id": "FP2",
+  "title": "unattributable (correction language, but no identifiable active skill or agent)",
+  "expect": "silent",
+  "rationale": "There IS Tier-1 correction language, but the corrected output cannot be attributed to any producer: no identifiable active skill or agent generated it. With append-only attribution, an unattributable correction has no artifact to stamp and is not worth interrupting for, so the attribution gate must drop the candidate -> NO consent gate.",
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- PostToolUse recorded a Write tool call this turn that created a file, but NO skill or agent was active or identifiable for that output — it was produced by plain Claude with no shipped skill or agent involved. There is no identifiable active producer to attribute the correction to.\n- The UserPromptSubmit primer flagged correction language in the user's latest message.\n\nThe user's latest message at this turn boundary is:\n\"No, that's wrong — this isn't the right format at all.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates. Run the attribution gate as the skill instructs: since no active skill or agent can be identified for this output, the candidate is unattributable. Do not ask me clarifying questions first; act on the primed turn state."
+}

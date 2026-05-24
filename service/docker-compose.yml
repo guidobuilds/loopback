@@ -1,0 +1,18 @@
+# Optional convenience for running the service locally.
+# `docker compose up --build` then `curl localhost:8080/healthz`.
+services:
+  loopback-svc:
+    build: .
+    image: loopback-svc:local
+    ports:
+      - "8080:8080"
+    # Auth is per-user, hashed tokens stored in the DB — there is NO server token
+    # env var. Mint tokens against the running container's DB, e.g.:
+    #   docker compose exec loopback-svc python3 issue_token.py --email you@example.com --admin
+    #   docker compose exec loopback-svc python3 issue_token.py --email dev@example.com
+    # DB_PATH defaults to /data/loopback.db in the image (see Dockerfile).
+    volumes:
+      - feedback-data:/data
+
+volumes:
+  feedback-data:
