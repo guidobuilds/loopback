@@ -8,10 +8,12 @@ WORKDIR /app
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# App code, the wire-contract schema, and the operator CLI utilities
-# (read-only listing + admin token issuance).
+# App code, the wire-contract schema, the Alembic config + migrations, and the
+# operator CLI utilities (read-only listing + admin token issuance).
 COPY app /app/app
 COPY feedback-record.schema.json /app/feedback-record.schema.json
+COPY alembic.ini /app/alembic.ini
+COPY migrations /app/migrations
 COPY show_latest_feedback.py /app/show_latest_feedback.py
 COPY issue_token.py /app/issue_token.py
 
@@ -23,4 +25,6 @@ RUN mkdir -p /data
 
 EXPOSE 8080
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Apply Alembic migrations (creates/updates the schema at DB_PATH) before
+# starting the API. Alembic runs from /app where alembic.ini + migrations live.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8080"]

@@ -145,8 +145,8 @@ truly rendering the gate to the user in this step.
 - **`[S]end`** → call the **`submit_feedback`** tool with the artifact fields, the
   (possibly user-edited) `summary`, the redacted `evidenceExcerpt`, `workType`,
   `severity`, `confidence`, and `clusterKey`. The tool re-redacts defensively,
-  validates against the wire contract, stamps `anonUserId` + `client.{plugin,harness}`,
-  and POSTs. Report the returned `issueUrl` to the user.
+  validates against the wire contract, stamps `client.{plugin,harness}`, and
+  POSTs. Report the returned `issueUrl` to the user.
 - **`[E]dit`** → let the user correct the lesson and/or trim/expand the excerpt,
   **re-run `redact_preview` on the edited excerpt**, re-render this gate, and wait again.
 - **`[D]ecline`** → do nothing, send nothing, and do not nag. Decline is free and

@@ -51,5 +51,6 @@ Only a candidate that clears all five reaches the consent gate.
   (show-exactly-what-is-sent).
 - `submit_feedback` re-redacts defensively, so even an edited excerpt is cleaned
   again before transmission.
-- `anonUserId` is a non-reversible per-machine pseudonym; no PII ever leaves the
-  machine.
+- No client-side user identifier is carried on the wire; the submitter is
+  resolved server-side from the auth token (`records.user_id`), and no PII ever
+  leaves the machine.

@@ -88,7 +88,7 @@ function textOf(r) {
   assert.strictEqual(received.client.harness, 'codex');
   assert.strictEqual(received.client.plugin, 'loopback@0.0.1');
   assert.ok(!/\/Users\//.test(received.evidenceExcerpt), 'excerpt must be redacted server-side: ' + received.evidenceExcerpt);
-  assert.ok(/^u_[0-9a-f]{8,}$/.test(received.anonUserId), 'anonUserId stamped');
+  assert.ok(!('anonUserId' in received), 'anonUserId must not be on the wire (identity is server-side)');
   console.log('server received client:', JSON.stringify(received.client), 'excerpt:', JSON.stringify(received.evidenceExcerpt));
 
   // debounce flag set after submit

@@ -3,12 +3,15 @@
 
 Generates a high-entropy ``lpbk_`` token, stores ONLY its sha256 hash as a NEW
 row in the append-only ``tokens`` table, and prints the plaintext token ONCE
-(it is not recoverable). Use ``--admin`` to grant read access to GET /feedback.
+(it is not recoverable). Identity is normalized: a ``User`` is keyed by a unique ``email`` and carries
+``is_admin``. Re-issuing for an existing email reuses the SAME user and appends a
+NEW token row. ``--admin`` grants the user admin (read) access to GET /feedback;
+on an existing non-admin user, ``--admin`` promotes them (idempotent).
 
 This is the bootstrap path: the first admin is minted here (it writes directly
 to the DB), so there is no chicken-and-egg with API auth.
 
-Stdlib only (no FastAPI / no venv needed):
+Needs the service venv/container deps (SQLAlchemy), no longer stdlib-only:
 
     python3 issue_token.py --email dev@example.com
     python3 issue_token.py --email you@example.com --admin
@@ -26,13 +29,12 @@ from __future__ import annotations
 import argparse
 import os
 import re
-import sqlite3
 import sys
 from datetime import datetime, timezone
 
-# Shared, stdlib-only primitives (no FastAPI pulled in): token gen + hashing,
-# the schema initializer, and the append-only insert helper.
-from app.db import init_db, insert_token
+# Shared persistence + token primitives. issue_token now uses the SQLAlchemy
+# layer (ORM helpers) rather than raw sqlite3, so it requires the venv deps.
+from app.db import get_or_create_user, init_db, insert_token, make_session_factory
 from app.tokens import generate_token, hash_token
 
 # Matches app/main.py: os.environ.get("DB_PATH", "/tmp/loopback.db").
@@ -97,15 +99,20 @@ def main(argv: list[str] | None = None) -> int:
     created_at = _now()
 
     try:
-        # Ensure the DB + schema (incl. the tokens table) exist; idempotent.
-        init_db(db_path)
-        con = sqlite3.connect(db_path)
-        con.row_factory = sqlite3.Row
+        # Ensure the DB + schema exist (idempotent), then mint via the ORM:
+        # get-or-create the user (promote to admin if --admin) and append a token.
+        engine = init_db(db_path)
+        session_factory = make_session_factory(engine)
+        session = session_factory()
         try:
-            insert_token(con, email, token_hash, args.admin, created_at)
+            user = get_or_create_user(
+                session, email, is_admin=args.admin, created_at=created_at
+            )
+            insert_token(session, user, token_hash, created_at)
+            session.commit()
         finally:
-            con.close()
-    except sqlite3.DatabaseError as exc:
+            session.close()
+    except Exception as exc:  # noqa: BLE001 — surface any DB/ORM failure to the operator
         print(f"error: writing database '{db_path}': {exc}", file=sys.stderr)
         return 1
 

@@ -64,12 +64,6 @@ section('harness auto-detects from AI_AGENT (no config needed)', () => {
   }
 });
 
-section('anon-id is well-formed and stable', () => {
-  const a = core.anonUserId(TMP);
-  assert.ok(/^u_[0-9a-f]{8,}$/.test(a), 'bad anon id: ' + a);
-  assert.strictEqual(a, core.anonUserId(TMP));
-});
-
 section('mutes round-trip', () => {
   assert.strictEqual(core.mutes.isMuted(TMP, 'x'), false);
   core.mutes.mute(TMP, 'x');
@@ -95,14 +89,23 @@ section('valid fixture validates; missing-summary is rejected', () => {
 section('assembleRecord redacts + stamps harness and validates', () => {
   const rec = core.wire.assembleRecord(
     { artifactKind: 'skill', artifactId: 'prd-writer', summary: 'lesson', evidenceExcerpt: 'leak at /Users/x/a.ts' },
-    { dataDir: TMP, harness: 'opencode', pluginVersion: '0.0.1' }
+    { harness: 'opencode', pluginVersion: '0.0.1' }
   );
   assert.ok(core.wire.validateRecord(rec), JSON.stringify(core.wire.validateRecord.errors));
   assert.strictEqual(rec.client.harness, 'opencode');
   assert.ok(!/\/Users\//.test(rec.evidenceExcerpt));
+  // Identity is resolved server-side from the auth token; no anonUserId on the wire.
+  assert.ok(!('anonUserId' in rec), 'anonUserId must not be stamped');
 });
 
-console.log('\nMCP integration smoke:');
-execFileSync('node', [path.join(__dirname, 'mcp-smoke.js')], { stdio: 'inherit', env: process.env });
+// `loopback list` read path (async: flag->query mapping, table/json renderers,
+// and fetchRecords against a throwaway HTTP server). Runs before the MCP smoke.
+require('./list').run().then(() => {
+  console.log('\nMCP integration smoke:');
+  execFileSync('node', [path.join(__dirname, 'mcp-smoke.js')], { stdio: 'inherit', env: process.env });
 
-console.log('\nALL CLIENT TESTS PASSED');
+  console.log('\nALL CLIENT TESTS PASSED');
+}).catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

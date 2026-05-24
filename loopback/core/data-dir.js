@@ -1,7 +1,7 @@
 'use strict';
 /*
  * data-dir (core) — harness-agnostic resolution of the mutable per-machine
- * state dir (salt, anon-id cache, mutes.json, turn-state/).
+ * state dir (mutes.json, turn-state/).
  *
  * Replaces the old Claude-Code-only fallback (${CLAUDE_PLUGIN_DATA} ->
  * ~/.claude/plugins/data/loopback). Each adapter MAY set LOOPBACK_DATA_DIR to

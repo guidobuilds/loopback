@@ -2,7 +2,7 @@
 /*
  * @loopback/core — the harness-agnostic heart of loopback.
  *
- * Single source of truth for: data-dir resolution, redaction, anon-id, mutes,
+ * Single source of truth for: data-dir resolution, redaction, mutes,
  * turn-state (disk, for hooks), session-state (in-process, for the MCP), and the
  * wire contract (schema validate + assemble + POST). Consumed by the MCP server
  * (mcp/), the CLI (cli/), and the per-harness adapters (adapters/).
@@ -10,7 +10,6 @@
 
 const { usableEnv, resolveDataDir, resolveHarness, resolveHarnessVersion } = require('./data-dir');
 const { redactText, redactMaybe, MAX_LEN } = require('./redact');
-const { anonUserId } = require('./anon-id');
 const mutes = require('./mutes');
 const turnState = require('./turn-state');
 const sessionState = require('./session-state');
@@ -27,7 +26,6 @@ module.exports = {
   redactText,
   redactMaybe,
   MAX_LEN,
-  anonUserId,
   mutes,
   turnState,
   sessionState,

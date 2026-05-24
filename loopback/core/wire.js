@@ -17,7 +17,6 @@ const Ajv2020 = require('ajv/dist/2020');
 const addFormats = require('ajv-formats');
 
 const { redactMaybe } = require('./redact');
-const { anonUserId } = require('./anon-id');
 
 // require() the JSON (not fs.readFileSync) so the schema is INLINED when the MCP
 // server is bundled (bun/esbuild) — a runtime fs read keyed off __dirname breaks
@@ -35,9 +34,10 @@ function newRecordId() {
   return 'fb_' + rand;
 }
 
-// Build a wire record from the post-consent tool args. id/anonUserId/client/
-// timestamp are stamped here, not supplied by the caller. summary + excerpt are
-// defensively re-redacted (show-exactly-what-is-sent + defense in depth).
+// Build a wire record from the post-consent tool args. id/client/timestamp are
+// stamped here, not supplied by the caller. summary + excerpt are defensively
+// re-redacted (show-exactly-what-is-sent + defense in depth). The submitter's
+// identity is resolved SERVER-SIDE from the auth token, not carried on the wire.
 function assembleRecord(args, opts) {
   opts = opts || {};
   const version = opts.pluginVersion || '0.0.1';
@@ -60,11 +60,6 @@ function assembleRecord(args, opts) {
   if (args.severity) record.severity = args.severity;
   if (args.confidence) record.confidence = args.confidence;
   if (args.clusterKey) record.clusterKey = args.clusterKey;
-
-  if (opts.dataDir) {
-    const uid = anonUserId(opts.dataDir);
-    if (uid) record.anonUserId = uid;
-  }
 
   return record;
 }
@@ -96,4 +91,47 @@ async function postRecord(record, opts) {
   }
 }
 
-module.exports = { schema, validateRecord, assembleRecord, postRecord, newRecordId };
+// Symmetric to postRecord: read records back from the service's GET /feedback.
+// `opts.query` is an object of already-resolved filter/pagination params; only
+// truthy/defined values are serialized into the query string (so unset filters
+// are simply omitted). Returns {ok, body} on 2xx, else {ok:false, error}. The
+// error shape mirrors postRecord, surfacing 401/403 verbatim so the CLI can map
+// them to friendly messages.
+async function fetchRecords(opts) {
+  opts = opts || {};
+  const baseUrl = opts.url;
+  const token = opts.token;
+  if (!baseUrl) return { ok: false, error: 'LOOPBACK_INGEST_URL is not configured' };
+
+  const params = new URLSearchParams();
+  const query = opts.query || {};
+  for (const key of Object.keys(query)) {
+    const value = query[key];
+    if (value === undefined || value === null || value === '') continue;
+    params.append(key, String(value));
+  }
+  const qs = params.toString();
+  const url = qs ? baseUrl + (baseUrl.includes('?') ? '&' : '?') + qs : baseUrl;
+
+  const headers = {};
+  if (token) headers['authorization'] = 'Bearer ' + token;
+
+  try {
+    const res = await fetch(url, { method: 'GET', headers });
+    const text = await res.text();
+    let body;
+    try {
+      body = JSON.parse(text);
+    } catch (_) {
+      body = { raw: text };
+    }
+    if (!res.ok) {
+      return { ok: false, status: res.status, error: `ingest responded ${res.status}: ${text.slice(0, 300)}` };
+    }
+    return { ok: true, body };
+  } catch (err) {
+    return { ok: false, error: 'GET failed: ' + err.message };
+  }
+}
+
+module.exports = { schema, validateRecord, assembleRecord, postRecord, fetchRecords, newRecordId };

@@ -70,7 +70,6 @@ class FeedbackRecord(BaseModel):
     workType: Optional[str] = Field(default=None, min_length=1)
     evidenceExcerpt: Optional[str] = None
     timestamp: Optional[str] = None
-    anonUserId: Optional[str] = Field(default=None, min_length=1)
     severity: Optional[Severity] = None
     confidence: Optional[Confidence] = None
     clusterKey: Optional[str] = Field(default=None, min_length=1)

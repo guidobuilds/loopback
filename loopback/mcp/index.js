@@ -7,7 +7,7 @@
  *
  * Tools (all GENERAL):
  *   submit_feedback   — terminal POST after the user chose [S]end (re-redacts,
- *                       validates against the wire contract, stamps anonUserId +
+ *                       validates against the wire contract, stamps
  *                       client.{plugin,harness}, POSTs to the ingest service).
  *   redact_preview    — redact an excerpt and report whether anything was removed
  *                       (lets the consent gate show exactly-what-is-sent).
@@ -60,7 +60,7 @@ server.registerTool(
       'Submit ONE de-identified loopback record to the central ingest service. ' +
       'Call this ONLY after the user explicitly chose [S]end at the consent gate. The ' +
       'server re-redacts summary/excerpt, validates against the shared wire contract, ' +
-      'stamps anonUserId and client.{plugin,harness}, and POSTs to the configured ingest URL.',
+      'stamps client.{plugin,harness}, and POSTs to the configured ingest URL.',
     inputSchema: {
       artifactKind: z.enum(['skill', 'agent', 'artifact']).describe('Kind of artifact the feedback is about.'),
       artifactId: z.string().min(1).describe("Artifact id, e.g. 'prd-writer'."),
@@ -76,7 +76,6 @@ server.registerTool(
   },
   async (args) => {
     const record = core.wire.assembleRecord(args, {
-      dataDir: DATA_DIR,
       harness: HARNESS,
       pluginVersion: PLUGIN_VERSION,
     });
