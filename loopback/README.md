@@ -13,103 +13,72 @@ it works identically under Claude Code, OpenCode, and Codex.
 
 This directory is the **npm package** (`@guidobuilds/loopback`). There is no
 Claude Code plugin / marketplace: `loopback setup` writes each harness's config
-directly. See the [root README](../README.md) for install + the central service.
-
-## Status
-
-MVP, append-only (no registry). Shipping: the shared core, the `loopback` MCP
-server (prebuilt bundle), the `loopback setup` installer, the portable detector
-skill, and harness wiring for **Claude Code**, **OpenCode**, and **Codex** (all via
-`setup`; Codex unverified on a live install). The FastAPI service is under `../service`.
+directly. See the [root README](../README.md) for the project overview + service.
 
 ## Install
 
 ```sh
-npx @guidobuilds/loopback setup --ingest-url <url> --token <tok>   # auto-detects agents
+# auto-detects your installed agents (or name them, e.g. `… setup claude-code opencode`):
+npx @guidobuilds/loopback setup --ingest-url <url> --token <tok>
+```
+
+It wires the MCP server + detector skill + `/harness-feedback` command (+ hooks on
+Claude Code), is safe to re-run, and auto-detects the originating harness at
+runtime. Restart your agent afterward. Remove with
+`npx @guidobuilds/loopback uninstall`.
+
+You need the central service running and a per-user token (issued by an admin via
+`service/issue_token.py`). The submit path reads `LOOPBACK_INGEST_URL` and the
+bearer token `LOOPBACK_TOKEN`; `loopback setup` bakes those into each harness's
+MCP config.
+
+## Review feedback
+
+```sh
+loopback list --format json --all > feedback.json   # whole corpus (needs an ADMIN token)
+loopback list --severity high --artifact prd-writer # filtered table
 ```
 
 ## Layout
 
 ```
 loopback/                       # npm package @guidobuilds/loopback
-├── core/                       # GENERAL lib: data-dir, redact, mutes,
-│                               #   turn-state, session-state, wire (validate+POST+GET)
+├── core/                       # shared lib: data-dir, redact, mutes, turn/session-state, wire
 │   └── feedback-record.schema.json   # single source-of-truth wire contract
-├── mcp/
-│   ├── index.js                #   MCP server SOURCE (6 tools)
-│   └── server.bundle.js        #   prebuilt self-contained bundle (shipped; `npm run build`)
-├── cli/
-│   ├── index.js                #   CLI: setup/uninstall + core primitives (used by hooks)
-│   └── setup.js                #   the one-command installer (per-harness config injection)
-├── skills/feedback-detector/   # ONE portable skill (copied into each harness)
-├── commands/harness-feedback.md # canonical /harness-feedback command (copied into each harness)
-├── hooks/on-*.js               # Claude Code tripwires (wired into ~/.claude/settings.json)
-├── adapters/opencode/plugins/loopback.ts   # OpenCode tripwire plugin (copied + path-baked)
-└── test/                       # client + installer test runners
+├── mcp/index.js · server.bundle.js   # MCP server source + prebuilt bundle (6 tools)
+├── cli/index.js · setup.js     # CLI + the one-command installer
+├── skills/feedback-detector/   # one portable detector skill (copied into each harness)
+├── commands/harness-feedback.md
+├── hooks/on-*.js               # Claude Code tripwires
+└── adapters/opencode/plugins/loopback.ts   # OpenCode tripwire plugin
 ```
 
-## Runtime / configuration
-
-- Node only (built-in `fetch`). The published package is **self-contained**: the
-  MCP server is prebuilt into a dependency-free bundle (`mcp/server.bundle.js`, via
-  `npm run build` / bun) and the hooks/CLI are stdlib-only, so the install pulls
-  **no runtime dependencies**. The 4 deps (`@modelcontextprotocol/sdk`, `ajv`,
-  `ajv-formats`, `zod`) are **devDependencies** — only needed to rebuild the bundle
-  or run the tests.
-- The submit path reads `LOOPBACK_INGEST_URL` and the per-user bearer token
-  `LOOPBACK_TOKEN` (issued by an admin via the service's `issue_token.py`).
-  The originating harness (`client.harness`: `claude-code` | `opencode` | `codex`)
-  is **auto-detected at runtime** from the launching harness's environment
-  (`AI_AGENT`, else harness-specific markers; omitted if unknown) — nothing is
-  configured per harness.
-- Mutable per-machine state (mutes, turn bookkeeping) lives in the data dir
-  resolved by `core/data-dir.js`: `LOOPBACK_DATA_DIR` → `CLAUDE_PLUGIN_DATA`
-  (Claude Code) → `$XDG_DATA_HOME/loopback` → `~/.local/share/loopback`.
-
-## Reviewing feedback — `loopback list`
-
-`loopback list` reads stored feedback back from the service's admin-only
-`GET /feedback` and renders it as a compact table (default) or pretty JSON. It
-needs an **admin** `LOOPBACK_TOKEN` (or `--token`) and the full `/feedback` URL in
-`LOOPBACK_INGEST_URL` (or `--ingest-url`).
-
-```sh
-# whole corpus as JSON, e.g. to feed to a coding agent
-loopback list --format json --all > feedback.json
-
-# filtered table: high-severity feedback for the prd-writer skill
-loopback list --severity high --artifact prd-writer
-
-# page the results, or filter by submitter / date range
-loopback list --limit 50 --offset 50
-loopback list --email dev@example.com --from 2026-05-01T00:00:00Z --to 2026-05-31T00:00:00Z
-```
-
-Flags: `--format table|json` (default `table`), `--all` (= every record),
-`--limit N` (default 100), `--offset N`, `--artifact ID`, `--severity`,
-`--confidence`, `--email`, `--from`/`--to` (inclusive received-time range),
-`--ingest-url URL`, `--token TOK`. A non-admin token returns a friendly 403.
-
-## The feedback record contract
-
-`core/feedback-record.schema.json` is the single source-of-truth wire contract
-(design §5), reused by the client (ajv) and the central FastAPI service (pydantic),
-kept in lockstep by `service/tests/test_contract.py`.
-
-Required fields: `id`, `schemaVersion`, `artifact.kind` (`skill` | `agent` |
-`artifact`), and `summary`. No raw artifact content is ever stored — only the
-summary plus a redacted excerpt. `client.harness` records the originating harness.
+The published package is **self-contained**: the MCP server is prebuilt into a
+dependency-free bundle (`mcp/server.bundle.js`, via `npm run build` / bun), so the
+install pulls **no runtime dependencies** (the four deps are devDependencies).
 
 ## Tests
 
 ```sh
-npm run build                    # rebuild mcp/server.bundle.js after editing core/ or mcp/
-npm test                         # core+MCP suite (test/run.js) + installer suite (test/setup-smoke.js)
+npm run build                       # rebuild mcp/server.bundle.js after editing core/ or mcp/
+npm test                            # core+MCP suite + installer suite
 bun test/opencode-plugin-smoke.ts   # OpenCode plugin -> CLI -> core (needs bun)
 ```
+
+## Documentation
+
+- **CLI reference** (all commands + `setup`/`list` flags, data dir, files `setup`
+  writes) → [`../docs/cli.md`](../docs/cli.md)
+- **MCP reference** (registration + the six tools) →
+  [`../docs/mcp.md`](../docs/mcp.md)
+- **Environment variables** →
+  [`../docs/environment-variables.md`](../docs/environment-variables.md)
+- **Run it end to end** → [`../DEVELOPMENT.md`](../DEVELOPMENT.md) · **Docs index**
+  → [`../docs/README.md`](../docs/README.md)
 
 ## Privacy posture
 
 De-identified by construction with per-send confirmation. Nothing leaves the
 machine without an explicit `[S]end`; the redacted excerpt shown in the consent
-gate is byte-for-byte what is sent.
+gate is byte-for-byte what is sent. No raw artifact content is ever stored — only
+a synthesized `summary` and a redacted `evidenceExcerpt`.

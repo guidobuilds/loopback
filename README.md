@@ -73,17 +73,18 @@ Read the stored records back (admin token):
 curl -s -H "Authorization: Bearer <your admin token>" localhost:8080/feedback
 ```
 
-## Reference
+## Documentation
 
-**Client** — `loopback setup` bakes `LOOPBACK_INGEST_URL` (ingest endpoint) and `LOOPBACK_TOKEN`
-(per-user bearer) into each harness's MCP config. The originating harness (`client.harness`) is
-auto-detected at runtime — nothing to configure. The published npm package is self-contained
-(the MCP server is a prebuilt, dependency-free bundle).
+The canonical reference lives in [`docs/`](docs/README.md):
 
-**Service** — `GET /healthz` · `POST /feedback` (any valid token → validate → re-redact → store)
-· `GET /feedback` (admin-only read-back). Tokens are per-user, hashed, append-only, minted with
-`service/issue_token.py`. `DB_PATH` defaults to `/data/loopback.db` in the image. Full contract:
-[`service/README.md`](service/README.md).
+- [docs/service.md](docs/service.md) — service: endpoints, status codes, auth/token model, persistence, troubleshooting.
+- [docs/cli.md](docs/cli.md) — the `loopback` CLI: commands, `setup`/`list` flags, data dir, files `setup` writes.
+- [docs/mcp.md](docs/mcp.md) — the MCP server: registration per harness and the six tools.
+- [docs/environment-variables.md](docs/environment-variables.md) — every env var + the data-dir and harness-detection chains.
+
+To run loopback end to end from a checkout, see [DEVELOPMENT.md](DEVELOPMENT.md).
+Package READMEs: [`loopback/`](loopback/README.md) (npm client) ·
+[`service/`](service/README.md).
 
 **Wire contract** — `loopback/core/feedback-record.schema.json` is the single source of truth
 (JSON Schema 2020-12), shared by client (ajv) and service (pydantic) and lockstep-tested. It
