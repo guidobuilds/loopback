@@ -17,7 +17,6 @@ const Ajv2020 = require('ajv/dist/2020');
 const addFormats = require('ajv-formats');
 
 const { redactMaybe } = require('./redact');
-const { anonUserId } = require('./anon-id');
 
 // require() the JSON (not fs.readFileSync) so the schema is INLINED when the MCP
 // server is bundled (bun/esbuild) — a runtime fs read keyed off __dirname breaks
@@ -35,9 +34,10 @@ function newRecordId() {
   return 'fb_' + rand;
 }
 
-// Build a wire record from the post-consent tool args. id/anonUserId/client/
-// timestamp are stamped here, not supplied by the caller. summary + excerpt are
-// defensively re-redacted (show-exactly-what-is-sent + defense in depth).
+// Build a wire record from the post-consent tool args. id/client/timestamp are
+// stamped here, not supplied by the caller. summary + excerpt are defensively
+// re-redacted (show-exactly-what-is-sent + defense in depth). The submitter's
+// identity is resolved SERVER-SIDE from the auth token, not carried on the wire.
 function assembleRecord(args, opts) {
   opts = opts || {};
   const version = opts.pluginVersion || '0.0.1';
@@ -60,11 +60,6 @@ function assembleRecord(args, opts) {
   if (args.severity) record.severity = args.severity;
   if (args.confidence) record.confidence = args.confidence;
   if (args.clusterKey) record.clusterKey = args.clusterKey;
-
-  if (opts.dataDir) {
-    const uid = anonUserId(opts.dataDir);
-    if (uid) record.anonUserId = uid;
-  }
 
   return record;
 }

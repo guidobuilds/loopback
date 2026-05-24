@@ -3,8 +3,9 @@
 #
 # Builds + runs the service container, points the plugin's ingest config at it,
 # POSTs a canonical record to the running container (developer token as bearer), then
-# asserts the append-only store kept a schema-valid record (stamped anonUserId +
-# server id) that is retrievable via GET /feedback. (The full client MCP -> service
+# asserts the append-only store kept a schema-valid record (with a server id and
+# the submitter resolved from the token) that is retrievable via GET /feedback.
+# (The full client MCP -> service
 # path is covered by loopback/test/e2e-local.js.)
 #
 # This script bridges Group A (plugin, owned by a sibling worker) and Group B

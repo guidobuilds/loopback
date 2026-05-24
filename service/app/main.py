@@ -12,9 +12,10 @@ Endpoints:
 Auth model (per-user, hashed-at-rest tokens)
 --------------------------------------------
 A presented ``Authorization: Bearer <token>`` is sha256-hashed and looked up in
-the ``tokens`` table. There is NO environment/shared token. Any valid token may
-POST; only a token with ``is_admin = 1`` may GET /feedback. Tokens are minted
-out-of-band by the admin CLI (``issue_token.py``) against the same DB_PATH.
+the ``tokens`` table (joined to ``users``). There is NO environment/shared token.
+Any valid token may POST; only a token whose user has ``is_admin = 1`` may GET
+/feedback. Tokens are minted out-of-band by the admin CLI (``issue_token.py``)
+against the same DB_PATH.
 
 HTTP status contract (design §7 split — strictly honored):
 - 401  missing/malformed/unknown bearer token.
@@ -37,19 +38,21 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import FastAPI, Header, Request
+from fastapi import Depends, FastAPI, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from . import db as db_mod
 from . import redact
 from . import tokens as tokens_mod
 from .models import FeedbackRecord, FeedbackResponse
+from .orm import Quarantine, Record
 
 
 def _now() -> str:
@@ -102,68 +105,65 @@ def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
     return parts[1]
 
 
-def _authenticate(
-    con: sqlite3.Connection, authorization: Optional[str]
-) -> Optional[dict]:
-    """Resolve a presented bearer to its token row, or None.
+def _authenticate(session: Session, authorization: Optional[str]) -> Optional[dict]:
+    """Resolve a presented bearer to its owning user's identity, or None.
 
     Fail closed: missing/malformed bearer or no matching row => None. On success
-    returns ``{email, is_admin}`` from the ``tokens`` table.
+    returns ``{user_id, email, is_admin}`` (joined tokens -> users).
     """
     plaintext = _extract_bearer(authorization)
     if not plaintext:
         return None
-    return db_mod.lookup_token(con, tokens_mod.hash_token(plaintext))
+    return db_mod.lookup_token(session, tokens_mod.hash_token(plaintext))
 
 
 def _records_as_wire(
-    con: sqlite3.Connection,
+    session: Session,
     limit: Optional[int] = None,
     offset: int = 0,
 ) -> List[dict]:
     """Return stored records (oldest first), reconstructed in the wire record shape.
 
-    The shape matches ``feedback-record.schema.json`` (plus a ``serverId``
-    field) so E2E can re-validate stored records against the canonical schema.
+    The shape matches ``feedback-record.schema.json`` (plus a server-added
+    ``serverId`` field) so E2E can re-validate stored records against the
+    canonical schema. ``anonUserId`` is no longer carried.
 
     With the defaults (``limit=None, offset=0``) this returns ALL records, so
     param-less callers are unchanged. ``limit``/``offset`` page at the SQL level.
     """
-    sql = "SELECT * FROM records ORDER BY created_at"
-    params: List[int] = []
-    if limit is not None or offset:
-        # SQLite requires a LIMIT clause to honor OFFSET; -1 means "no limit".
-        sql += " LIMIT ? OFFSET ?"
-        params.extend([limit if limit is not None else -1, offset])
-    rows = con.execute(sql, params).fetchall()
+    stmt = select(Record).order_by(Record.created_at)
+    if offset:
+        stmt = stmt.offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    rows = session.execute(stmt).scalars().all()
     out: List[dict] = []
     for r in rows:
         out.append({
-            "id": r["client_id"] or r["id"],
-            "serverId": r["id"],
-            "schemaVersion": r["schema_version"],
+            "id": r.client_id or r.id,
+            "serverId": r.id,
+            "schemaVersion": r.schema_version,
             "artifact": {
                 k: v for k, v in {
-                    "kind": r["artifact_kind"],
-                    "id": r["artifact_id"],
-                    "version": r["artifact_version"],
-                    "repo": r["artifact_repo"],
+                    "kind": r.artifact_kind,
+                    "id": r.artifact_id,
+                    "version": r.artifact_version,
+                    "repo": r.artifact_repo,
                 }.items() if v is not None
             },
-            "summary": r["summary"],
-            **({"workType": r["work_type"]} if r["work_type"] else {}),
-            **({"evidenceExcerpt": r["evidence_excerpt"]} if r["evidence_excerpt"] is not None else {}),
-            **({"timestamp": r["timestamp"]} if r["timestamp"] else {}),
-            **({"anonUserId": r["anon_user_id"]} if r["anon_user_id"] else {}),
-            **({"severity": r["severity"]} if r["severity"] else {}),
-            **({"confidence": r["confidence"]} if r["confidence"] else {}),
-            **({"clusterKey": r["cluster_key"]} if r["cluster_key"] else {}),
+            "summary": r.summary,
+            **({"workType": r.work_type} if r.work_type else {}),
+            **({"evidenceExcerpt": r.evidence_excerpt} if r.evidence_excerpt is not None else {}),
+            **({"timestamp": r.timestamp} if r.timestamp else {}),
+            **({"severity": r.severity} if r.severity else {}),
+            **({"confidence": r.confidence} if r.confidence else {}),
+            **({"clusterKey": r.cluster_key} if r.cluster_key else {}),
             **({"client": {
                 k: v for k, v in {
-                    "plugin": r["client_plugin"],
-                    "harness": r["client_harness"],
+                    "plugin": r.client_plugin,
+                    "harness": r.client_harness,
                 }.items() if v is not None
-            }} if r["client_plugin"] else {}),
+            }} if r.client_plugin else {}),
         })
     return out
 
@@ -171,12 +171,23 @@ def _records_as_wire(
 def create_app(db_path: Optional[str] = None) -> FastAPI:
     db_path = db_path or os.environ.get("DB_PATH", "/tmp/loopback.db")
 
-    db_mod.init_db(db_path)
-    con = db_mod.connect(db_path)
+    # Dev/test bootstrap: ensure the schema exists via create_all. Production
+    # runs Alembic migrations at startup (see Dockerfile) before this runs.
+    engine = db_mod.init_db(db_path)
+    session_factory = db_mod.make_session_factory(engine)
 
     app = FastAPI(title="loopback-svc", version="0.0.1")
     app.state.db_path = db_path
-    app.state.con = con
+    app.state.engine = engine
+    app.state.session_factory = session_factory
+
+    def get_db():
+        """Yield a per-request Session, always closed afterward."""
+        session = session_factory()
+        try:
+            yield session
+        finally:
+            session.close()
 
     @app.get("/healthz")
     def healthz() -> dict:
@@ -186,9 +197,11 @@ def create_app(db_path: Optional[str] = None) -> FastAPI:
     async def post_feedback(
         request: Request,
         authorization: Optional[str] = Header(default=None),
+        session: Session = Depends(get_db),
     ) -> JSONResponse:
         # 1. Auth: any valid per-user token (admin or not) may submit.
-        if _authenticate(con, authorization) is None:
+        identity = _authenticate(session, authorization)
+        if identity is None:
             return JSONResponse(status_code=401, content={"detail": "unauthorized"})
 
         # 2. Parse + validate body. Schema-invalid -> 400 (NOT 422; 422 reserved).
@@ -207,39 +220,43 @@ def create_app(db_path: Optional[str] = None) -> FastAPI:
         # 3. Server-side redaction re-check (design §7). Leak -> 422 + quarantine.
         reasons = redact.leak_reasons(record.summary, record.evidenceExcerpt)
         if reasons:
-            con.execute(
-                "INSERT OR REPLACE INTO quarantine (id, reason, payload, created_at) VALUES (?,?,?,?)",
-                (record.id, ",".join(reasons), json.dumps(raw), _now()),
-            )
-            con.commit()
+            session.merge(Quarantine(
+                id=record.id,
+                reason=",".join(reasons),
+                payload=json.dumps(raw),
+                created_at=_now(),
+            ))
+            session.commit()
             return JSONResponse(
                 status_code=422,
                 content={"detail": "redaction re-check failed; quarantined", "patterns": reasons},
             )
 
-        # 4. Accept: assign a server id and append the record to the store.
+        # 4. Accept: assign a server id and append the record to the store. The
+        #    record is linked to the authenticated submitter via user_id.
         server_id = "fb_srv_" + uuid.uuid4().hex
         art = record.artifact
-        con.execute(
-            """INSERT INTO records
-               (id, client_id, schema_version, artifact_kind, artifact_id,
-                artifact_version, artifact_repo, summary, work_type,
-                evidence_excerpt, timestamp, anon_user_id, severity, confidence,
-                cluster_key, client_plugin, client_harness, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (
-                server_id, record.id, record.schemaVersion, art.kind.value,
-                art.id, art.version, art.repo, record.summary, record.workType,
-                record.evidenceExcerpt, record.timestamp, record.anonUserId,
-                record.severity.value if record.severity else None,
-                record.confidence.value if record.confidence else None,
-                record.clusterKey,
-                record.client.plugin if record.client else None,
-                record.client.harness.value if record.client and record.client.harness else None,
-                _now(),
-            ),
-        )
-        con.commit()
+        session.add(Record(
+            id=server_id,
+            client_id=record.id,
+            schema_version=record.schemaVersion,
+            artifact_kind=art.kind.value,
+            artifact_id=art.id,
+            artifact_version=art.version,
+            artifact_repo=art.repo,
+            summary=record.summary,
+            work_type=record.workType,
+            evidence_excerpt=record.evidenceExcerpt,
+            timestamp=record.timestamp,
+            severity=record.severity.value if record.severity else None,
+            confidence=record.confidence.value if record.confidence else None,
+            cluster_key=record.clusterKey,
+            client_plugin=record.client.plugin if record.client else None,
+            client_harness=record.client.harness.value if record.client and record.client.harness else None,
+            created_at=_now(),
+            user_id=identity["user_id"],
+        ))
+        session.commit()
 
         resp = FeedbackResponse(status="stored", id=server_id)
         return JSONResponse(status_code=200, content=resp.model_dump())
@@ -249,12 +266,13 @@ def create_app(db_path: Optional[str] = None) -> FastAPI:
         authorization: Optional[str] = Header(default=None),
         limit: Optional[str] = None,
         offset: Optional[str] = None,
+        session: Session = Depends(get_db),
     ) -> JSONResponse:
         # First-class read-back: "review all feedback received". Reading the whole
         # corpus is an ADMIN action: a valid token is required (else 401) AND it
         # must be admin (else 403 — authenticated but not authorized).
         # Pagination is opt-in via ?limit & ?offset; param-less => all records.
-        identity = _authenticate(con, authorization)
+        identity = _authenticate(session, authorization)
         if identity is None:
             return JSONResponse(status_code=401, content={"detail": "unauthorized"})
         if not identity["is_admin"]:
@@ -262,7 +280,7 @@ def create_app(db_path: Optional[str] = None) -> FastAPI:
         lim, off, err = _parse_pagination(limit, offset)
         if err:
             return JSONResponse(status_code=400, content={"detail": err})
-        return JSONResponse(status_code=200, content=_records_as_wire(con, lim, off))
+        return JSONResponse(status_code=200, content=_records_as_wire(session, lim, off))
 
     return app
 

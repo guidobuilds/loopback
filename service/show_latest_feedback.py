@@ -71,11 +71,14 @@ def _fetch_latest(con: sqlite3.Connection, limit: int) -> list[sqlite3.Row]:
     # created_at is NOT NULL (server receive time); rowid DESC breaks ties and
     # is the natural fallback for "latest" if created_at ever lacked ordering.
     sql = (
-        "SELECT rowid AS _rowid, id, client_id, schema_version, artifact_kind, "
-        "artifact_id, artifact_version, artifact_repo, summary, work_type, "
-        "evidence_excerpt, timestamp, anon_user_id, severity, confidence, "
-        "cluster_key, client_plugin, created_at "
-        "FROM records ORDER BY created_at DESC, rowid DESC LIMIT ?"
+        "SELECT records.rowid AS _rowid, records.id, records.client_id, "
+        "records.schema_version, records.artifact_kind, records.artifact_id, "
+        "records.artifact_version, records.artifact_repo, records.summary, "
+        "records.work_type, records.evidence_excerpt, records.timestamp, "
+        "records.severity, records.confidence, records.cluster_key, "
+        "records.client_plugin, records.created_at, users.email AS submitter_email "
+        "FROM records LEFT JOIN users ON records.user_id = users.id "
+        "ORDER BY records.created_at DESC, records.rowid DESC LIMIT ?"
     )
     return con.execute(sql, (limit,)).fetchall()
 
@@ -101,7 +104,7 @@ def _format_record(index: int, r: sqlite3.Row) -> str:
     out.append(meta)
 
     out.append(
-        f"  user     : {_short(r['anon_user_id'], 40)}    "
+        f"  user     : {_short(r['submitter_email'], 40)}    "
         f"plugin: {_short(r['client_plugin'], 28)}"
     )
 

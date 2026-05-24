@@ -1,83 +1,109 @@
-"""SQLite database layer for the loopback service.
+"""SQLAlchemy engine/session layer for the loopback service.
 
-Provides idempotent schema initialization and a small connection helper. The
-schema (the append-only ``records`` store + ``quarantine`` + per-user
-``tokens``) lives in ``schema.sql`` alongside this module.
+Replaces the former raw ``sqlite3`` + ``schema.sql`` layer. The ORM models live
+in ``app/orm.py``; production schema is managed by Alembic (see ``migrations/``),
+while ``init_db`` provides a fast ``create_all`` bootstrap for tests / local dev.
+
+Auth lookup joins ``tokens`` -> ``users`` and returns the resolved identity
+(``user_id`` + ``email`` + ``is_admin``). The token-minting helpers
+(``get_or_create_user`` + ``insert_token``) back ``issue_token.py`` and the test
+fixtures.
 """
 from __future__ import annotations
 
 import os
-import sqlite3
-from pathlib import Path
 from typing import Optional
 
-_SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+from sqlalchemy import create_engine, event, select
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from .orm import Base, Record, Token, User  # noqa: F401  (Record imported for metadata)
 
 
-def _schema_sql() -> str:
-    return _SCHEMA_PATH.read_text(encoding="utf-8")
+def make_engine(db_path: str) -> Engine:
+    """Create a SQLite engine for ``db_path`` with FK enforcement enabled.
+
+    ``check_same_thread=False`` lets the engine's pooled connection be shared
+    across FastAPI's worker threads (each request gets its own Session). A
+    per-connection ``PRAGMA foreign_keys=ON`` listener enforces the FK
+    constraints SQLite otherwise ignores by default.
+    """
+    engine = create_engine(
+        "sqlite:///" + db_path,
+        connect_args={"check_same_thread": False},
+    )
+
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_connection, connection_record):  # noqa: ANN001
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    return engine
 
 
-def connect(path: str) -> sqlite3.Connection:
-    """Open a SQLite connection with sensible defaults for the service."""
-    con = sqlite3.connect(path, check_same_thread=False)
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA foreign_keys = ON")
-    return con
+def make_session_factory(engine: Engine) -> sessionmaker:
+    """Return a ``sessionmaker`` bound to ``engine`` (one factory per engine)."""
+    return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
-def init_db(path: str) -> None:
-    """Create the schema if it does not already exist. Idempotent."""
-    parent = os.path.dirname(os.path.abspath(path))
+def init_db(db_path: str) -> Engine:
+    """Create the DB file + all tables via ``create_all``. Idempotent.
+
+    Fast path for tests and local bootstrap; production uses Alembic migrations.
+    Returns the engine so callers can build a session factory off it.
+    """
+    parent = os.path.dirname(os.path.abspath(db_path))
     if parent:
         os.makedirs(parent, exist_ok=True)
-    con = connect(path)
-    try:
-        con.executescript(_schema_sql())
-        _migrate(con)
-        con.commit()
-    finally:
-        con.close()
+    engine = make_engine(db_path)
+    Base.metadata.create_all(engine)
+    return engine
 
 
-def _migrate(con: sqlite3.Connection) -> None:
-    """Idempotent column migrations for DBs created before a column existed.
+def lookup_token(session: Session, token_hash: str) -> Optional[dict]:
+    """Resolve a token by its sha256 hash to the owning user's identity.
 
-    ``CREATE TABLE IF NOT EXISTS`` never alters an existing table, so additive
-    columns must be applied here. Safe to run on every startup.
+    Returns ``{user_id, email, is_admin}`` or ``None`` if no token matches.
     """
-    cols = {row["name"] for row in con.execute("PRAGMA table_info(records)")}
-    if "client_harness" not in cols:
-        con.execute("ALTER TABLE records ADD COLUMN client_harness TEXT")
+    row = session.execute(
+        select(Token.user_id, User.email, User.is_admin)
+        .join(User, Token.user_id == User.id)
+        .where(Token.token_hash == token_hash)
+        .limit(1)
+    ).first()
+    if row is None:
+        return None
+    return {"user_id": row[0], "email": row[1], "is_admin": bool(row[2])}
+
+
+def get_or_create_user(
+    session: Session, email: str, is_admin: bool = False, created_at: str = ""
+) -> User:
+    """Return the user for ``email``, creating it if missing.
+
+    If ``is_admin=True`` and the user exists but is non-admin, the user is
+    PROMOTED to admin (idempotent). Caller commits.
+    """
+    user = session.execute(
+        select(User).where(User.email == email)
+    ).scalar_one_or_none()
+    if user is None:
+        user = User(email=email, is_admin=is_admin, created_at=created_at)
+        session.add(user)
+        session.flush()  # assign user.id without committing
+        return user
+    if is_admin and not user.is_admin:
+        user.is_admin = True
+    return user
 
 
 def insert_token(
-    con: sqlite3.Connection,
-    email: str,
-    token_hash: str,
-    is_admin: bool,
-    created_at: str,
-) -> int:
-    """Append a NEW token row (append-only: never updates/deletes prior rows).
-
-    Re-issuing for an existing email inserts a fresh row; all prior rows are
-    retained. Returns the new row's ``id``.
-    """
-    cur = con.execute(
-        "INSERT INTO tokens (email, token_hash, is_admin, created_at) "
-        "VALUES (?,?,?,?)",
-        (email, token_hash, 1 if is_admin else 0, created_at),
-    )
-    con.commit()
-    return int(cur.lastrowid)
-
-
-def lookup_token(con: sqlite3.Connection, token_hash: str) -> Optional[dict]:
-    """Resolve a token by its sha256 hash. Returns ``{email, is_admin}`` or None."""
-    row = con.execute(
-        "SELECT email, is_admin FROM tokens WHERE token_hash = ? LIMIT 1",
-        (token_hash,),
-    ).fetchone()
-    if row is None:
-        return None
-    return {"email": row["email"], "is_admin": bool(row["is_admin"])}
+    session: Session, user: User, token_hash: str, created_at: str
+) -> Token:
+    """Append a NEW token row for ``user`` (append-only). Caller commits."""
+    token = Token(user_id=user.id, token_hash=token_hash, created_at=created_at)
+    session.add(token)
+    session.flush()
+    return token

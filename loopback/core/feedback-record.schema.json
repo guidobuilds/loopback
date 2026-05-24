@@ -64,11 +64,6 @@
       "format": "date-time",
       "description": "When the feedback was generated (RFC 3339 / ISO 8601 date-time)."
     },
-    "anonUserId": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Stable per-machine pseudonym, not PII (§10). Lets the server count distinct affected users without identifying anyone."
-    },
     "severity": {
       "type": "string",
       "enum": ["low", "medium", "high"],

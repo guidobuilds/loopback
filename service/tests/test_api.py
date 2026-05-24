@@ -119,11 +119,30 @@ def test_stored_record_is_retrievable_via_get_feedback(client, token, admin_toke
     assert via_feedback.status_code == 200
     recs = via_feedback.json()
     assert any(rec["id"] == "fb_01J8ZQK3M7N2P5R8T1V4W6X9Y0" for rec in recs), recs
-    # The stored record carries its identifying data through unchanged.
+    # The stored record carries its data through unchanged. anonUserId is gone
+    # from the wire contract entirely — the submitter is resolved server-side
+    # from the auth token (records.user_id), never carried on the record.
     stored = next(rec for rec in recs if rec["id"] == "fb_01J8ZQK3M7N2P5R8T1V4W6X9Y0")
     assert stored["artifact"]["id"] == "prd-writer", stored
-    assert stored["anonUserId"] == "u_8f2a1c9d", stored
+    assert "anonUserId" not in stored, stored
     assert stored["serverId"].startswith("fb_srv_"), stored
+
+    # The persisted record links to the authenticated submitter (records.user_id
+    # NOT NULL FK), resolved from the POSTing token — here the non-admin `dev`.
+    from sqlalchemy import select
+
+    from app.orm import Record, User
+
+    session = client.app.state.session_factory()
+    try:
+        row = session.execute(
+            select(User.email)
+            .join(Record, Record.user_id == User.id)
+            .where(Record.id == stored["serverId"])
+        ).scalar_one()
+    finally:
+        session.close()
+    assert row == "dev@example.com", row
 
 
 def test_get_feedback_requires_token(client):

@@ -7,7 +7,6 @@
  *
  * Commands:
  *   redact [text...]                 redact stdin (or args) -> stdout
- *   anon-id                          print the stable per-machine pseudonym
  *   data-dir                         print the resolved data dir
  *   mute <id> | --is-muted <id> | --list | --unmute <id>
  *   scan-correction [text...]        exit 0 (+"hit") if correction-language present, else 1 (+"miss")
@@ -47,12 +46,6 @@ function main() {
     case 'redact': {
       const input = rest.length > 0 ? rest.join(' ') : readStdin();
       process.stdout.write(core.redactText(input));
-      return;
-    }
-
-    case 'anon-id': {
-      const id = core.anonUserId(DATA_DIR);
-      process.stdout.write((id || '') + '\n');
       return;
     }
 
@@ -139,7 +132,7 @@ function usage(specific) {
     'loopback ' +
       (specific ||
         'setup [harness...] [--ingest-url URL] [--token TOK] | uninstall [harness...] | ' +
-        'redact | anon-id | data-dir | mute | scan-correction | record-write | bump-correction | turn-state') +
+        'redact | data-dir | mute | scan-correction | record-write | bump-correction | turn-state') +
       '\n'
   );
   process.exit(2);
