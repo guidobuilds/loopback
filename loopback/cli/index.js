@@ -6,6 +6,9 @@
  * only exposes the core primitives.
  *
  * Commands:
+ *   setup / uninstall                wire / unwire each detected harness
+ *   config --ingest-url URL --token TOK   write ~/.loopback/config.json (rotation)
+ *   config --show                    print resolved credentials (token redacted)
  *   redact [text...]                 redact stdin (or args) -> stdout
  *   data-dir                         print the resolved data dir
  *   list [--format table|json] [filters...]   read stored feedback back (admin token)
@@ -135,9 +138,46 @@ function main() {
       return;
     }
 
+    case 'config': {
+      // Canonical credentials path. `--show` prints the resolved values
+      // (token redacted); otherwise --ingest-url / --token write to
+      // ~/.loopback/config.json. Lazy-required to keep top-level imports cheap.
+      const show = rest.includes('--show');
+      if (show) {
+        const file = core.config.loadConfig();
+        const out = {
+          path: core.config.configPath(),
+          schemaVersion: file.schemaVersion || null,
+          ingestUrl: file.ingestUrl || null,
+          token: file.token ? redactToken(file.token) : null,
+        };
+        process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+        return;
+      }
+      const ingestUrl = flag(rest, '--ingest-url');
+      const token = flag(rest, '--token');
+      if (!ingestUrl && !token) {
+        return usage('config --ingest-url URL --token TOK | config --show');
+      }
+      const patch = {};
+      if (ingestUrl) patch.ingestUrl = ingestUrl;
+      if (token) patch.token = token;
+      core.config.saveConfig(patch);
+      process.stdout.write(`wrote ${core.config.configPath()} (mode 0600)\n`);
+      return;
+    }
+
     default:
       return usage();
   }
+}
+
+// Redact a token for `loopback config --show`: keep first 4 chars + len marker.
+// Never prints the secret in clear; safe for screen-share / paste.
+function redactToken(t) {
+  const s = String(t || '');
+  if (s.length <= 8) return '*'.repeat(s.length);
+  return s.slice(0, 4) + '*'.repeat(s.length - 4);
 }
 
 function usage(specific) {
@@ -145,6 +185,7 @@ function usage(specific) {
     'loopback ' +
       (specific ||
         'setup [harness...] [--ingest-url URL] [--token TOK] | uninstall [harness...] | ' +
+        'config --ingest-url URL --token TOK | config --show | ' +
         'list [--format table|json] [--all] [--limit N] [--offset N] [--artifact ID] ' +
         '[--severity low|medium|high] [--confidence low|medium|high] [--email ADDR] ' +
         '[--from ISO] [--to ISO] [--ingest-url URL] [--token TOK] | ' +

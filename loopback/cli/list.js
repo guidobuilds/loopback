@@ -10,9 +10,9 @@
  * read lives in core/wire.js (native fetch); this module just maps flags ->
  * query, calls fetchRecords, and renders.
  *
- * Auth: GET /feedback requires an ADMIN token. The token is taken from --token
- * or $LOOPBACK_TOKEN; the URL from --ingest-url or $LOOPBACK_INGEST_URL (the
- * full /feedback URL — GET uses the same URL as POST).
+ * Auth: GET /feedback requires an ADMIN token. The token + URL are resolved via
+ * core.config.resolveCredentials, which honors --token / --ingest-url, then the
+ * LOOPBACK_TOKEN / LOOPBACK_INGEST_URL env vars, then ~/.loopback/config.json.
  */
 
 const core = require('../core');
@@ -122,14 +122,17 @@ async function run(argv) {
     process.exit(2);
   }
 
-  const url = opts.ingestUrl || process.env.LOOPBACK_INGEST_URL;
-  const token = opts.token || process.env.LOOPBACK_TOKEN;
+  // Precedence: --flag > env var > ~/.loopback/config.json > error.
+  const { ingestUrl: url, token } = core.config.resolveCredentials({
+    flagToken: opts.token,
+    flagUrl: opts.ingestUrl,
+  });
   if (!url) {
-    process.stderr.write('loopback list: no ingest URL — pass --ingest-url or set LOOPBACK_INGEST_URL\n');
+    process.stderr.write('loopback list: no ingest URL — pass --ingest-url, set LOOPBACK_INGEST_URL, or run `loopback config --ingest-url URL`\n');
     process.exit(2);
   }
   if (!token) {
-    process.stderr.write('loopback list: no token — pass --token or set LOOPBACK_TOKEN (must be an ADMIN token)\n');
+    process.stderr.write('loopback list: no token — pass --token, set LOOPBACK_TOKEN, or run `loopback config --token TOK` (must be an ADMIN token)\n');
     process.exit(2);
   }
 

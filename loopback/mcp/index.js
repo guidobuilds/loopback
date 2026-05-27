@@ -85,9 +85,13 @@ server.registerTool(
       return err('record failed schema validation', { details });
     }
 
+    // Credentials precedence: env var > ~/.loopback/config.json (set by
+    // `loopback setup` / `loopback config`). The MCP server has no flags, so
+    // there's no flag layer here.
+    const { ingestUrl, token } = core.config.resolveCredentials({});
     const result = await core.wire.postRecord(record, {
-      url: process.env.LOOPBACK_INGEST_URL,
-      token: process.env.LOOPBACK_TOKEN,
+      url: ingestUrl,
+      token,
     });
     if (!result.ok) return err(result.error);
 

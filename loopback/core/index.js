@@ -32,4 +32,9 @@ module.exports = {
   get wire() {
     return require('./wire');
   },
+  // Credentials config (single source of truth at ~/.loopback/config.json).
+  // Lazy-required so adapters that never need credentials don't pay the cost.
+  get config() {
+    return require('./config');
+  },
 };

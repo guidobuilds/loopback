@@ -28,9 +28,40 @@ runtime. Restart your agent afterward. Remove with
 `npx @guidobuilds/loopback uninstall`.
 
 You need the central service running and a per-user token (issued by an admin via
-`service/issue_token.py`). The submit path reads `LOOPBACK_INGEST_URL` and the
-bearer token `LOOPBACK_TOKEN`; `loopback setup` bakes those into each harness's
-MCP config.
+`service/issue_token.py`).
+
+## Credentials
+
+Credentials live in a single file: `~/.loopback/config.json` (mode `0600`). One
+place, every harness + the CLI read from it. `loopback setup --ingest-url …
+--token …` writes it for you the first time; rotation goes through
+`loopback config`:
+
+```sh
+loopback config --token NEW_TOKEN              # rotate the bearer token
+loopback config --ingest-url https://new/path  # change the service URL
+loopback config --show                         # print resolved values (token redacted)
+```
+
+**Precedence** (same for every code path):
+
+1. CLI flag (`--token`, `--ingest-url`)
+2. Env var (`LOOPBACK_TOKEN`, `LOOPBACK_INGEST_URL`) — per-session or per-harness override
+3. `~/.loopback/config.json` — the single source of truth
+4. nothing → CLI errors with exit 2; MCP server returns an error
+
+**Per-harness override** (rare, advanced): add an `env`/`environment` block by
+hand to that harness's MCP config (e.g. `~/.config/opencode/opencode.json`)
+with `LOOPBACK_TOKEN` set to a different value. `loopback setup` preserves
+unrelated env entries on re-runs. *Caveat: Claude Code re-registers via the
+`claude mcp` CLI on every `loopback setup`, so a manual env block under
+`mcpServers.loopback.env` in `~/.claude.json` must be re-applied after each
+re-run.*
+
+**Migration**: if you had `LOOPBACK_*` env values baked into any harness config
+from an earlier version, the next `loopback setup` automatically harvests them
+into `~/.loopback/config.json` (without clobbering anything already there) and
+removes the legacy env entries.
 
 ## Review feedback
 
