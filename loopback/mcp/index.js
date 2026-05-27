@@ -57,10 +57,10 @@ server.registerTool(
   {
     title: 'Submit loopback feedback',
     description:
-      'Submit ONE de-identified loopback record to the central ingest service. ' +
+      'Submit ONE de-identified loopback record to the central feedback service. ' +
       'Call this ONLY after the user explicitly chose [S]end at the consent gate. The ' +
       'server re-redacts summary/excerpt, validates against the shared wire contract, ' +
-      'stamps client.{plugin,harness}, and POSTs to the configured ingest URL.',
+      'stamps client.{plugin,harness}, and POSTs to the configured service URL.',
     inputSchema: {
       artifactKind: z.enum(['skill', 'agent', 'artifact']).describe('Kind of artifact the feedback is about.'),
       artifactId: z.string().min(1).describe("Artifact id, e.g. 'prd-writer'."),
@@ -85,9 +85,16 @@ server.registerTool(
       return err('record failed schema validation', { details });
     }
 
+    // Credentials precedence: env var > ~/.loopback/config.json (set by
+    // `loopback config`). The MCP server has no flags, so
+    // there's no flag layer here. The persisted base URL is combined with the
+    // `/feedback` path via core.wire.endpoint() — a missing base short-circuits
+    // to a null URL which postRecord rejects with a clear error.
+    const { serviceUrl, token } = core.config.resolveCredentials({});
+    const url = serviceUrl ? core.wire.endpoint(serviceUrl, '/feedback') : null;
     const result = await core.wire.postRecord(record, {
-      url: process.env.LOOPBACK_INGEST_URL,
-      token: process.env.LOOPBACK_TOKEN,
+      url,
+      token,
     });
     if (!result.ok) return err(result.error);
 

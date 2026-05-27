@@ -1,6 +1,6 @@
 'use strict';
 /*
- * loopback setup — the one-command installer (engram-style).
+ * Internal installer module — exposed to users as `loopback config`.
  *
  * For each detected/requested harness it writes everything automatically, with
  * NO marketplace and NO manual config edits: registers the MCP server (absolute
@@ -17,6 +17,8 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
+const core = require('../core');
+
 const PKG_ROOT = path.resolve(__dirname, '..'); // loopback/
 const MCP_BUNDLE = path.join(PKG_ROOT, 'mcp', 'server.bundle.js');
 const CLI_PATH = path.join(PKG_ROOT, 'cli', 'index.js');
@@ -26,6 +28,10 @@ const HOOKS_DIR = path.join(PKG_ROOT, 'hooks');
 const OPENCODE_PLUGIN_SRC = path.join(PKG_ROOT, 'adapters', 'opencode', 'plugins', 'loopback.ts');
 
 const HARNESSES = ['claude-code', 'opencode', 'codex'];
+// LOOPBACK_* keys we recognize in pre-existing harness env blocks. Used by the
+// env-block harvester (splitEnvBlock) to identify which entries to migrate into
+// ~/.loopback/config.json and which to leave alone.
+const LOOPBACK_ENV_KEYS = ['LOOPBACK_SERVICE_URL', 'LOOPBACK_TOKEN'];
 
 function home() {
   return process.env.HOME || os.homedir();
@@ -113,13 +119,196 @@ function stripJSONC(data) {
   return out;
 }
 
-// Build the MCP env block from resolved secrets (omit empties so the server can
-// fall back to inherited process env).
-function mcpEnv(secrets) {
-  const env = {};
-  if (secrets.ingestUrl) env.LOOPBACK_INGEST_URL = secrets.ingestUrl;
-  if (secrets.token) env.LOOPBACK_TOKEN = secrets.token;
-  return env;
+// Split a harness env-block-shaped object into:
+//   - loopback: any LOOPBACK_* keys (will be migrated to ~/.loopback/config.json)
+//   - rest:     everything else (PRESERVED in the harness config)
+// Returns `null` for `rest` when there are no non-loopback keys, so callers can
+// drop empty env blocks entirely.
+function splitEnvBlock(block) {
+  const out = { loopback: {}, rest: {} };
+  if (!block || typeof block !== 'object') return out;
+  for (const [k, v] of Object.entries(block)) {
+    if (LOOPBACK_ENV_KEYS.includes(k)) out.loopback[k] = v;
+    else out.rest[k] = v;
+  }
+  return out;
+}
+
+// Pull LOOPBACK_* env values harvested from a harness config into
+// ~/.loopback/config.json — but ONLY when the on-disk config is missing or has
+// an empty field. Never clobbers a user's existing canonical config.
+function migrateLoopbackEnv(loopbackEnv) {
+  if (!loopbackEnv || Object.keys(loopbackEnv).length === 0) return false;
+  const file = core.config.loadConfig();
+  const patch = {};
+  if (!file.serviceUrl && loopbackEnv.LOOPBACK_SERVICE_URL) {
+    patch.serviceUrl = loopbackEnv.LOOPBACK_SERVICE_URL;
+  }
+  if (!file.token && loopbackEnv.LOOPBACK_TOKEN) {
+    patch.token = loopbackEnv.LOOPBACK_TOKEN;
+  }
+  if (Object.keys(patch).length === 0) return false;
+  core.config.saveConfig(patch);
+  return true;
+}
+
+// Pre-pass: detect legacy `env`/`environment` blocks containing LOOPBACK_*
+// entries across every harness config we know about, harvest those values into
+// ~/.loopback/config.json (if it's missing or empty), then strip the LOOPBACK_*
+// keys from the harness blocks so subsequent reads/writes don't reintroduce
+// them. Preserves any unrelated env keys the user had set.
+//
+// Why a pre-pass: for Claude Code we call `claude mcp remove` before
+// `claude mcp add-json`, which wipes the prior env block from ~/.claude.json.
+// We must read+migrate BEFORE that removal, regardless of which harnesses the
+// caller asked to install.
+function migrateLegacyEnvBlocks() {
+  let migrated = 0;
+
+  // Claude Code: read ~/.claude.json directly (the claude CLI's stored
+  // user-scope MCP config) and strip the env block before `claude mcp remove`
+  // gets a chance to wipe it.
+  const ccJsonPath = path.join(home(), '.claude.json');
+  if (exists(ccJsonPath)) {
+    try {
+      const ccJson = JSON.parse(fs.readFileSync(ccJsonPath, 'utf8'));
+      const mcp = ccJson && ccJson.mcpServers && ccJson.mcpServers.loopback;
+      if (mcp && mcp.env && typeof mcp.env === 'object') {
+        const split = splitEnvBlock(mcp.env);
+        if (Object.keys(split.loopback).length) {
+          if (migrateLoopbackEnv(split.loopback)) migrated++;
+          if (Object.keys(split.rest).length) mcp.env = split.rest;
+          else delete mcp.env;
+          fs.writeFileSync(ccJsonPath, JSON.stringify(ccJson, null, 2) + '\n');
+        }
+      }
+    } catch (_) {
+      /* unreadable / unparseable -> skip; setup will continue */
+    }
+  }
+
+  // OpenCode: opencode.json or opencode.jsonc.
+  const ocDir = openCodeConfigDir();
+  const ocPath = exists(path.join(ocDir, 'opencode.jsonc'))
+    ? path.join(ocDir, 'opencode.jsonc')
+    : path.join(ocDir, 'opencode.json');
+  if (exists(ocPath)) {
+    const cfg = readJSON(ocPath);
+    const entry = cfg && cfg.mcp && cfg.mcp.loopback;
+    if (entry && entry.environment && typeof entry.environment === 'object') {
+      const split = splitEnvBlock(entry.environment);
+      if (Object.keys(split.loopback).length) {
+        if (migrateLoopbackEnv(split.loopback)) migrated++;
+        if (Object.keys(split.rest).length) entry.environment = split.rest;
+        else delete entry.environment;
+        writeJSON(ocPath, cfg);
+      }
+    }
+  }
+
+  // Codex: TOML — best-effort parse of [mcp_servers.loopback.env] block. We
+  // don't pull in a TOML parser; instead we scan the file and either rewrite
+  // or drop the env section.
+  const codexPath = codexConfigPath();
+  if (exists(codexPath)) {
+    const before = fs.readFileSync(codexPath, 'utf8');
+    const { content: after, migrated: lp } = migrateCodexEnv(before);
+    if (lp && Object.keys(lp).length) {
+      if (migrateLoopbackEnv(lp)) migrated++;
+      if (after !== before) fs.writeFileSync(codexPath, after);
+    }
+  }
+
+  return migrated;
+}
+
+// Parse [mcp_servers.loopback.env] from a TOML string and return:
+//   { content: <rewritten TOML with LOOPBACK_* keys stripped (or section dropped)>,
+//     migrated: { LOOPBACK_SERVICE_URL?: string, LOOPBACK_TOKEN?: string } | null }
+// Stdlib-only; only handles the simple `KEY = "value"` form (which is what
+// installCodex emits). Anything fancier is left untouched and not migrated.
+function migrateCodexEnv(content) {
+  const lines = String(content).replace(/\r\n/g, '\n').split('\n');
+  const out = [];
+  const migrated = {};
+  let inEnv = false;
+  let envStart = -1;
+  let envLines = []; // lines kept (non-loopback env entries)
+  let touched = false;
+
+  function flushEnv() {
+    if (envStart < 0) return;
+    // Decide whether to keep the [mcp_servers.loopback.env] section.
+    const keep = envLines.some((l) => /^\s*[A-Za-z_][A-Za-z0-9_]*\s*=/.test(l));
+    if (keep) {
+      out.push('[mcp_servers.loopback.env]');
+      for (const l of envLines) out.push(l);
+    }
+    envStart = -1;
+    envLines = [];
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (trimmed === '[mcp_servers.loopback.env]') {
+      inEnv = true;
+      envStart = out.length;
+      envLines = [];
+      continue;
+    }
+    if (inEnv && trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      inEnv = false;
+      flushEnv();
+      out.push(line);
+      continue;
+    }
+    if (inEnv) {
+      const m = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"((?:\\.|[^"\\])*)"\s*$/);
+      if (m && LOOPBACK_ENV_KEYS.includes(m[1])) {
+        // Capture the value (handle the same \\-escapes that JSON.stringify emits).
+        try {
+          migrated[m[1]] = JSON.parse('"' + m[2] + '"');
+        } catch (_) {
+          migrated[m[1]] = m[2];
+        }
+        touched = true;
+        continue; // drop this line
+      }
+      envLines.push(line);
+      continue;
+    }
+    out.push(line);
+  }
+  if (inEnv) flushEnv();
+
+  if (!touched) {
+    return { content, migrated: null };
+  }
+  // Collapse any run of >2 blank lines to keep output tidy.
+  let joined = out.join('\n').replace(/\n{3,}/g, '\n\n');
+  if (!joined.endsWith('\n')) joined += '\n';
+  return { content: joined, migrated };
+}
+
+// Read non-loopback env entries from an existing [mcp_servers.loopback.env]
+// section, so installCodex can preserve them across re-runs. Returns an object
+// of survivor keys (already excludes LOOPBACK_*); empty if nothing to keep.
+function readCodexLoopbackEnv(content) {
+  const lines = String(content).replace(/\r\n/g, '\n').split('\n');
+  let inEnv = false;
+  const out = {};
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === '[mcp_servers.loopback.env]') { inEnv = true; continue; }
+    if (inEnv && trimmed.startsWith('[') && trimmed.endsWith(']')) { inEnv = false; continue; }
+    if (!inEnv) continue;
+    const m = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"((?:\\.|[^"\\])*)"\s*$/);
+    if (!m) continue;
+    if (LOOPBACK_ENV_KEYS.includes(m[1])) continue;
+    try { out[m[1]] = JSON.parse('"' + m[2] + '"'); } catch (_) { out[m[1]] = m[2]; }
+  }
+  return out;
 }
 
 /* ───────────────────────── Claude Code (plugin-less) ───────────────────── */
@@ -139,10 +328,13 @@ function installClaudeCode(secrets) {
   const actions = [];
 
   // 1. MCP server — register at user scope via the claude CLI (safe, supported).
+  // Credentials are NOT injected here; the MCP server reads them from
+  // ~/.loopback/config.json (or the inherited LOOPBACK_* env vars). The legacy
+  // env-block migration (if any) ran earlier in setup() via
+  // migrateLegacyEnvBlocks(), which reads ~/.claude.json directly BEFORE the
+  // `claude mcp remove` below wipes it.
   if (commandExists('claude')) {
     const spec = { command: 'node', args: [MCP_BUNDLE] };
-    const env = mcpEnv(secrets);
-    if (Object.keys(env).length) spec.env = env;
     try {
       execFileSync('claude', ['mcp', 'remove', 'loopback', '-s', 'user'], { stdio: 'ignore' });
     } catch (_) {
@@ -151,7 +343,7 @@ function installClaudeCode(secrets) {
     execFileSync('claude', ['mcp', 'add-json', 'loopback', JSON.stringify(spec), '-s', 'user'], { stdio: 'ignore' });
     actions.push('registered MCP server (user scope)');
   } else {
-    warn('claude CLI not found — skipped MCP registration; install Claude Code, then re-run `loopback setup`.');
+    warn('claude CLI not found — skipped MCP registration; install Claude Code, then re-run `loopback config`.');
   }
 
   // 2. Hooks — merge into ~/.claude/settings.json (idempotent by command string).
@@ -193,13 +385,19 @@ function installOpenCode(secrets) {
   const actions = [];
 
   // 1. MCP — inject mcp.loopback into opencode.json (prefer existing .jsonc).
+  // No LOOPBACK_* values are written into the `environment` block — those live
+  // in ~/.loopback/config.json. However, if the user added unrelated env vars
+  // to their existing entry, we preserve them.
   const jsonc = path.join(dir, 'opencode.jsonc');
   const configPath = exists(jsonc) ? jsonc : path.join(dir, 'opencode.json');
   const config = readJSON(configPath);
   config.mcp = config.mcp || {};
+  const prior = config.mcp.loopback || {};
   const entry = { type: 'local', command: ['node', MCP_BUNDLE], enabled: true };
-  const env = mcpEnv(secrets);
-  if (Object.keys(env).length) entry.environment = env;
+  if (prior.environment && typeof prior.environment === 'object') {
+    const { rest } = splitEnvBlock(prior.environment);
+    if (Object.keys(rest).length) entry.environment = rest;
+  }
   config.mcp.loopback = entry;
   writeJSON(configPath, config);
   actions.push('registered MCP server in ' + path.basename(configPath));
@@ -253,13 +451,18 @@ function installCodex(secrets) {
   const configPath = codexConfigPath();
   const actions = [];
 
-  let block = '[mcp_servers.loopback]\ncommand = "node"\nargs = [' + JSON.stringify(MCP_BUNDLE) + ']\n';
-  const env = mcpEnv(secrets);
-  if (Object.keys(env).length) {
-    block += '\n[mcp_servers.loopback.env]\n';
-    for (const [k, v] of Object.entries(env)) block += `${k} = ${JSON.stringify(v)}\n`;
-  }
+  // Preserve any pre-existing non-loopback env keys the user had set on the
+  // loopback entry (e.g. a manual per-harness override of a non-credential
+  // var). LOOPBACK_* keys were stripped earlier by migrateLegacyEnvBlocks(),
+  // so by this point env-block scanning here just preserves the survivors.
   const existing = exists(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
+  const preservedEnv = readCodexLoopbackEnv(existing); // already stripped of LOOPBACK_*
+
+  let block = '[mcp_servers.loopback]\ncommand = "node"\nargs = [' + JSON.stringify(MCP_BUNDLE) + ']\n';
+  if (preservedEnv && Object.keys(preservedEnv).length) {
+    block += '\n[mcp_servers.loopback.env]\n';
+    for (const [k, v] of Object.entries(preservedEnv)) block += `${k} = ${JSON.stringify(v)}\n`;
+  }
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   fs.writeFileSync(configPath, upsertCodexBlock(existing, block));
   actions.push('registered MCP server in config.toml');
@@ -283,10 +486,14 @@ function detectHarnesses() {
 }
 
 function resolveSecrets(opts) {
-  return {
-    ingestUrl: opts.ingestUrl || process.env.LOOPBACK_INGEST_URL || '',
-    token: opts.token || process.env.LOOPBACK_TOKEN || '',
-  };
+  // Precedence (flag > env > ~/.loopback/config.json) lives in
+  // core.config.resolveCredentials. We keep the `|| ''` boundary so the rest of
+  // setup.js can stay on string-truthy checks instead of `=== undefined`.
+  const { serviceUrl, token } = core.config.resolveCredentials({
+    flagToken: opts.token,
+    flagUrl: opts.serviceUrl,
+  });
+  return { serviceUrl: serviceUrl || '', token: token || '' };
 }
 
 const INSTALLERS = {
@@ -304,12 +511,30 @@ function setup(opts) {
     HARNESSES.includes(h)
   );
   if (!targets.length) {
-    warn('no supported harness detected (claude-code/opencode/codex). Pass one explicitly: `loopback setup claude-code`.');
+    warn('no supported harness detected (claude-code/opencode/codex). Pass one explicitly: `loopback config claude-code`.');
     return [];
   }
+
+  // Pre-pass: migrate any legacy `env`/`environment` LOOPBACK_* blocks from
+  // each harness's config into ~/.loopback/config.json, then strip them. Runs
+  // BEFORE installers so that Claude Code's `claude mcp remove` (inside
+  // installClaudeCode) can't wipe them before we read them.
+  const migrated = migrateLegacyEnvBlocks();
+  if (migrated) {
+    log(`migrated legacy LOOPBACK_* env block(s) from ${migrated} harness config(s) into ${core.config.configPath()}`);
+  }
+
   const secrets = resolveSecrets(opts);
-  if (!secrets.ingestUrl || !secrets.token) {
-    warn('LOOPBACK_INGEST_URL / LOOPBACK_TOKEN not provided (flags or env). Installing anyway; set them before submitting feedback.');
+  // Persist whatever the user passed on this invocation (or inherited from env)
+  // to the single source of truth — but only when at least one explicit value
+  // is supplied via flag or env, so a bare `loopback config` re-run is a no-op.
+  if ((opts.serviceUrl || opts.token || process.env.LOOPBACK_SERVICE_URL || process.env.LOOPBACK_TOKEN) &&
+      (secrets.serviceUrl || secrets.token)) {
+    core.config.saveConfig({ serviceUrl: secrets.serviceUrl, token: secrets.token });
+    log(`wrote credentials to ${core.config.configPath()} (mode 0600)`);
+  }
+  if (!secrets.serviceUrl || !secrets.token) {
+    warn('LOOPBACK_SERVICE_URL / LOOPBACK_TOKEN not provided (flag, env, or ~/.loopback/config.json). Installing anyway; run `loopback config --service-url URL --token TOK` before submitting feedback.');
   }
 
   const results = [];
@@ -400,4 +625,7 @@ module.exports = {
   installCodex,
   upsertCodexBlock,
   stripJSONC,
+  migrateLegacyEnvBlocks,
+  migrateCodexEnv,
+  splitEnvBlock,
 };

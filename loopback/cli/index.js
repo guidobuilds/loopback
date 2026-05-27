@@ -6,6 +6,14 @@
  * only exposes the core primitives.
  *
  * Commands:
+ *   config [harness...] [--service-url URL] [--token TOK]
+ *                                    one-command installer + credentials writer.
+ *                                    Idempotent: first run installs each detected
+ *                                    harness and writes ~/.loopback/config.json;
+ *                                    later runs re-sync configs and/or rotate
+ *                                    credentials. Same verb, every time.
+ *   config --show                    print resolved credentials (token redacted)
+ *   uninstall [harness...]           unwire each detected (or named) harness
  *   redact [text...]                 redact stdin (or args) -> stdout
  *   data-dir                         print the resolved data dir
  *   list [--format table|json] [filters...]   read stored feedback back (admin token)
@@ -119,19 +127,54 @@ function main() {
       return;
     }
 
-    case 'setup':
-    case 'uninstall': {
+    case 'config': {
+      // Single user-facing entry point for "configure loopback": writes
+      // ~/.loopback/config.json (when --service-url/--token are passed) AND
+      // wires the MCP server + skill + command + hooks into each detected (or
+      // explicitly named) harness. Idempotent — first run installs, later runs
+      // re-sync or rotate credentials. `--show` is the read-only inspector
+      // (prints resolved values with the token redacted). Lazy-required to
+      // keep top-level imports cheap.
+      const show = rest.includes('--show');
+      if (show) {
+        const file = core.config.loadConfig();
+        // Show RESOLVED credentials so an env-only setup is still visible
+        // (the resolver applies the same flag > env > file precedence the
+        // MCP server / `list` will use at submit/read time).
+        const resolved = core.config.resolveCredentials({});
+        const out = {
+          path: core.config.configPath(),
+          schemaVersion: file.schemaVersion || null,
+          serviceUrl: resolved.serviceUrl || null,
+          token: resolved.token ? redactToken(resolved.token) : null,
+        };
+        process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+        return;
+      }
       const setupMod = require('./setup');
-      const opts = { harnesses: [], ingestUrl: undefined, token: undefined };
+      const opts = { harnesses: [], serviceUrl: undefined, token: undefined };
       for (let i = 0; i < rest.length; i++) {
         const a = rest[i];
-        if (a === '--ingest-url') opts.ingestUrl = rest[++i];
+        if (a === '--service-url') opts.serviceUrl = rest[++i];
         else if (a === '--token') opts.token = rest[++i];
         else if (a === '--all' || a.startsWith('-')) continue;
         else opts.harnesses.push(a);
       }
-      if (cmd === 'setup') setupMod.setup(opts);
-      else setupMod.uninstall(opts);
+      setupMod.setup(opts);
+      return;
+    }
+
+    case 'uninstall': {
+      const setupMod = require('./setup');
+      const opts = { harnesses: [], serviceUrl: undefined, token: undefined };
+      for (let i = 0; i < rest.length; i++) {
+        const a = rest[i];
+        if (a === '--service-url') opts.serviceUrl = rest[++i];
+        else if (a === '--token') opts.token = rest[++i];
+        else if (a === '--all' || a.startsWith('-')) continue;
+        else opts.harnesses.push(a);
+      }
+      setupMod.uninstall(opts);
       return;
     }
 
@@ -140,14 +183,23 @@ function main() {
   }
 }
 
+// Redact a token for `loopback config --show`: keep first 4 chars + len marker.
+// Never prints the secret in clear; safe for screen-share / paste.
+function redactToken(t) {
+  const s = String(t || '');
+  if (s.length <= 8) return '*'.repeat(s.length);
+  return s.slice(0, 4) + '*'.repeat(s.length - 4);
+}
+
 function usage(specific) {
   process.stderr.write(
     'loopback ' +
       (specific ||
-        'setup [harness...] [--ingest-url URL] [--token TOK] | uninstall [harness...] | ' +
+        'config [harness...] [--service-url URL] [--token TOK] | config --show | ' +
+        'uninstall [harness...] | ' +
         'list [--format table|json] [--all] [--limit N] [--offset N] [--artifact ID] ' +
         '[--severity low|medium|high] [--confidence low|medium|high] [--email ADDR] ' +
-        '[--from ISO] [--to ISO] [--ingest-url URL] [--token TOK] | ' +
+        '[--from ISO] [--to ISO] [--service-url URL] [--token TOK] | ' +
         'redact | data-dir | mute | scan-correction | record-write | bump-correction | turn-state') +
       '\n'
   );

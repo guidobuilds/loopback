@@ -21,5 +21,5 @@ it to a central append-only store the artifact's authors can review.
   the CLI), see [`../DEVELOPMENT.md`](../DEVELOPMENT.md).
 - To **install the published package**, see [`../README.md`](../README.md) and
   [`../loopback/README.md`](../loopback/README.md)
-  (`npx @guidobuilds/loopback setup`).
+  (`npx @guidobuilds/loopback config`).
 - The **service** package README is [`../service/README.md`](../service/README.md).

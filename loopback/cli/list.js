@@ -10,9 +10,11 @@
  * read lives in core/wire.js (native fetch); this module just maps flags ->
  * query, calls fetchRecords, and renders.
  *
- * Auth: GET /feedback requires an ADMIN token. The token is taken from --token
- * or $LOOPBACK_TOKEN; the URL from --ingest-url or $LOOPBACK_INGEST_URL (the
- * full /feedback URL — GET uses the same URL as POST).
+ * Auth: GET /feedback requires an ADMIN token. The token + URL are resolved via
+ * core.config.resolveCredentials, which honors --token / --service-url, then
+ * the LOOPBACK_TOKEN / LOOPBACK_SERVICE_URL env vars, then
+ * ~/.loopback/config.json. The base service URL is combined with `/feedback`
+ * via core.wire.endpoint() at call time.
  */
 
 const core = require('../core');
@@ -20,7 +22,7 @@ const core = require('../core');
 // Flags that carry a value (the rest, like --all, are booleans).
 const VALUE_FLAGS = new Set([
   '--format', '--limit', '--offset', '--artifact', '--severity',
-  '--confidence', '--email', '--from', '--to', '--ingest-url', '--token',
+  '--confidence', '--email', '--from', '--to', '--service-url', '--token',
 ]);
 
 // Parse argv into an options object. Mirrors the local parsing style in
@@ -42,7 +44,7 @@ function parseArgs(argv) {
       case '--email': opts.email = v; break;
       case '--from': opts.from = v; break;
       case '--to': opts.to = v; break;
-      case '--ingest-url': opts.ingestUrl = v; break;
+      case '--service-url': opts.serviceUrl = v; break;
       case '--token': opts.token = v; break;
     }
   }
@@ -122,17 +124,22 @@ async function run(argv) {
     process.exit(2);
   }
 
-  const url = opts.ingestUrl || process.env.LOOPBACK_INGEST_URL;
-  const token = opts.token || process.env.LOOPBACK_TOKEN;
-  if (!url) {
-    process.stderr.write('loopback list: no ingest URL — pass --ingest-url or set LOOPBACK_INGEST_URL\n');
+  // Precedence: --flag > env var > ~/.loopback/config.json > error.
+  const { serviceUrl, token } = core.config.resolveCredentials({
+    flagToken: opts.token,
+    flagUrl: opts.serviceUrl,
+  });
+  if (!serviceUrl) {
+    process.stderr.write('loopback list: no service URL — pass --service-url, set LOOPBACK_SERVICE_URL, or run `loopback config --service-url URL`\n');
     process.exit(2);
   }
   if (!token) {
-    process.stderr.write('loopback list: no token — pass --token or set LOOPBACK_TOKEN (must be an ADMIN token)\n');
+    process.stderr.write('loopback list: no token — pass --token, set LOOPBACK_TOKEN, or run `loopback config --token TOK` (must be an ADMIN token)\n');
     process.exit(2);
   }
 
+  // Derive the concrete GET endpoint from the base service URL.
+  const url = core.wire.endpoint(serviceUrl, '/feedback');
   const query = buildQuery(opts);
   const res = await core.wire.fetchRecords({ url, token, query });
 

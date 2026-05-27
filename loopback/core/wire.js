@@ -7,8 +7,13 @@
  * lockstep by service/tests/test_contract.py.
  *
  * Extracted from the former servers/submit-server/index.js; assembleRecord and
- * postRecord are now parameterized (dataDir, harness, ingest url/token) instead
+ * postRecord are now parameterized (dataDir, harness, service url/token) instead
  * of reading Claude-Code-specific env, so they are harness-agnostic.
+ *
+ * `endpoint(serviceUrl, path)` derives a concrete endpoint URL from the base
+ * service URL persisted in ~/.loopback/config.json. Callers pass that derived
+ * URL into postRecord/fetchRecords (which keep their `opts.url` shape — they
+ * stay single-purpose and only know how to POST/GET a final URL).
  */
 
 const crypto = require('crypto');
@@ -68,7 +73,7 @@ async function postRecord(record, opts) {
   opts = opts || {};
   const url = opts.url;
   const token = opts.token;
-  if (!url) return { ok: false, error: 'LOOPBACK_INGEST_URL is not configured' };
+  if (!url) return { ok: false, error: 'LOOPBACK_SERVICE_URL is not configured' };
 
   const headers = { 'content-type': 'application/json' };
   if (token) headers['authorization'] = 'Bearer ' + token;
@@ -101,7 +106,7 @@ async function fetchRecords(opts) {
   opts = opts || {};
   const baseUrl = opts.url;
   const token = opts.token;
-  if (!baseUrl) return { ok: false, error: 'LOOPBACK_INGEST_URL is not configured' };
+  if (!baseUrl) return { ok: false, error: 'LOOPBACK_SERVICE_URL is not configured' };
 
   const params = new URLSearchParams();
   const query = opts.query || {};
@@ -134,4 +139,18 @@ async function fetchRecords(opts) {
   }
 }
 
-module.exports = { schema, validateRecord, assembleRecord, postRecord, fetchRecords, newRecordId };
+// Derive a concrete endpoint URL from the base service URL. `serviceUrl` is the
+// value persisted in ~/.loopback/config.json (e.g. "http://localhost:3000");
+// `path` is the endpoint suffix (e.g. "/feedback", "/health"). Returns null
+// when the base is missing/empty so callers can short-circuit. Strips trailing
+// slashes from the base and ensures `path` starts with a single leading slash.
+function endpoint(serviceUrl, path) {
+  if (typeof serviceUrl !== 'string' || serviceUrl.length === 0) return null;
+  const base = serviceUrl.replace(/\/+$/, '');
+  const suffix = typeof path === 'string' && path.length > 0
+    ? (path.startsWith('/') ? path : '/' + path)
+    : '';
+  return base + suffix;
+}
+
+module.exports = { schema, validateRecord, assembleRecord, postRecord, fetchRecords, newRecordId, endpoint };

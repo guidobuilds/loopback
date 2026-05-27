@@ -2,7 +2,7 @@
 
 loopback uses no `.env` files. Every variable below is read directly from the
 process environment. Client values are normally baked into each harness's MCP
-config by `loopback setup` (so you rarely export them by hand).
+config by `loopback config` (so you rarely export them by hand).
 
 ## Service
 
@@ -17,7 +17,7 @@ the DB. See [service.md](service.md#auth-model-per-user-hashed-tokens).
 
 | Name | Required | Default | Controls | Read by |
 |------|----------|---------|----------|---------|
-| `LOOPBACK_INGEST_URL` | yes, to submit/list | — | The full `/feedback` URL (POST and GET use the same URL). | MCP `submit_feedback`, `loopback list` |
+| `LOOPBACK_SERVICE_URL` | yes, to submit/list | — | The **base** service URL (no `/feedback`). Endpoint paths (`/feedback`, etc.) are derived per call by `core.wire.endpoint()`. | MCP `submit_feedback`, `loopback list` |
 | `LOOPBACK_TOKEN` | yes, to submit/list | — | Per-user bearer token (admin token required for `list`/`GET /feedback`). | MCP `submit_feedback`, `loopback list` |
 | `LOOPBACK_DATA_DIR` | no | resolved (see below) | Explicit override for the per-machine state dir. | `loopback/core/data-dir.js` |
 | `LOOPBACK_HARNESS` | no | auto-detected | Override the detected harness label (`client.harness`). Undocumented escape hatch; never written into config. | `loopback/core/data-dir.js` |

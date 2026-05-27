@@ -53,8 +53,8 @@ command -v jq >/dev/null 2>&1 || {
 }
 claude mcp get loopback >/dev/null 2>&1 || {
   echo "ENV-UNAVAILABLE: loopback is not installed in Claude Code. Run" >&2
-  echo "  npx @guidobuilds/loopback setup claude-code --ingest-url <url> --token <tok>" >&2
-  echo "first (or 'node ${PLUGIN}/cli/index.js setup claude-code ...' from a checkout)." >&2
+  echo "  npx @guidobuilds/loopback config claude-code --service-url <url> --token <tok>" >&2
+  echo "first (or 'node ${PLUGIN}/cli/index.js config claude-code ...' from a checkout)." >&2
   exit 2
 }
 [ -d "${SCEN_DIR}" ] || { echo "FAIL: scenarios dir missing: ${SCEN_DIR}" >&2; exit 1; }
@@ -64,7 +64,7 @@ claude mcp get loopback >/dev/null 2>&1 || {
 # given CLAUDE_PLUGIN_DATA isolates per-scenario mute state. Combined out+err.
 drive() {
   local data_dir="$1" prompt="$2"
-  # loopback is installed via `loopback setup` (plugin-less); claude reads it from
+  # loopback is installed via `loopback config` (plugin-less); claude reads it from
   # the user config. LOOPBACK_DATA_DIR isolates per-scenario state (mutes) — the MCP
   # server claude spawns inherits it.
   LOOPBACK_DATA_DIR="${data_dir}" \

@@ -16,21 +16,20 @@ server only validates, redacts, transmits, and tracks state the user approved.
 
 ## Registration
 
-`loopback setup` registers the server automatically per harness (see
-[cli.md](cli.md#files-setup-writes-per-harness)). The shapes it writes:
+`loopback config` registers the server automatically per harness (see
+[cli.md](cli.md#files-config-writes-per-harness)). The shapes it writes:
 
 **Claude Code** (`claude mcp add-json loopback … -s user`):
 
 ```json
-{ "command": "node", "args": ["<abs>/mcp/server.bundle.js"],
-  "env": { "LOOPBACK_INGEST_URL": "…", "LOOPBACK_TOKEN": "…" } }
+{ "command": "node", "args": ["<abs>/mcp/server.bundle.js"] }
 ```
 
 **OpenCode** (`mcp.loopback` in `opencode.json(c)`):
 
 ```json
 { "type": "local", "command": ["node", "<abs>/mcp/server.bundle.js"],
-  "enabled": true, "environment": { "LOOPBACK_INGEST_URL": "…", "LOOPBACK_TOKEN": "…" } }
+  "enabled": true }
 ```
 
 **Codex** (`~/.codex/config.toml`):
@@ -39,22 +38,22 @@ server only validates, redacts, transmits, and tracks state the user approved.
 [mcp_servers.loopback]
 command = "node"
 args = ["<abs>/mcp/server.bundle.js"]
-
-[mcp_servers.loopback.env]
-LOOPBACK_INGEST_URL = "…"
-LOOPBACK_TOKEN = "…"
 ```
 
-The `env`/`environment` block is omitted when no secrets are provided, so the
-server falls back to inherited process env.
+Credentials live in `~/.loopback/config.json` (single source of truth);
+per-harness `env`/`environment` blocks are no longer written by `loopback
+config`. Unrelated env keys the user added by hand are preserved across
+re-runs (OpenCode / Codex).
 
 ## Environment
 
-The server reads `LOOPBACK_INGEST_URL` and `LOOPBACK_TOKEN` (the per-user bearer)
-when submitting. The originating harness (`client.harness`) is **auto-detected at
+The server reads `LOOPBACK_SERVICE_URL` and `LOOPBACK_TOKEN` (the per-user
+bearer) when submitting, then falls back to `~/.loopback/config.json`. The
+service URL is the **base** (no `/feedback`); endpoint paths are derived per
+call. The originating harness (`client.harness`) is **auto-detected at
 runtime** from the launching harness's environment (primarily `AI_AGENT`, else
-harness-specific markers; omitted if unknown) — nothing is configured per harness.
-See [environment-variables.md](environment-variables.md).
+harness-specific markers; omitted if unknown) — nothing is configured per
+harness. See [environment-variables.md](environment-variables.md).
 
 ## Tools
 
@@ -64,7 +63,8 @@ Six tools, all general:
 
 Terminal POST after the user chose `[S]end` at the consent gate. Re-redacts
 `summary`/`evidenceExcerpt`, validates against the wire contract, stamps
-`client.{plugin,harness}`, and POSTs to the ingest URL.
+`client.{plugin,harness}`, and POSTs to the `/feedback` endpoint derived from
+the configured service URL.
 
 | Input | Type | Required | Notes |
 |-------|------|----------|-------|

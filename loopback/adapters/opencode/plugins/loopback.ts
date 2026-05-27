@@ -35,7 +35,7 @@ import type { Plugin } from "@opencode-ai/plugin"
 const WRITE_TOOLS = new Set(["write", "edit", "patch", "apply_patch", "multiedit"])
 
 export const loopback: Plugin = async ({ $ }) => {
-  // `loopback setup` patches the empty-string fallback below to bake in the
+  // `loopback config` patches the empty-string fallback below to bake in the
   // absolute path of loopback/cli/index.js, so the plugin works without the user
   // having to export LOOPBACK_CLI. (Env var still wins when set.)
   const CLI = process.env.LOOPBACK_CLI || ""
