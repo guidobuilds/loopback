@@ -34,7 +34,9 @@ function textOf(r) {
     command: 'node',
     args: [entry],
     env: Object.assign({}, process.env, {
-      LOOPBACK_INGEST_URL: `http://127.0.0.1:${port}/feedback`,
+      // Persisted shape is the BASE URL (no `/feedback`); the MCP server's
+      // submit_feedback handler derives the endpoint via core.wire.endpoint().
+      LOOPBACK_SERVICE_URL: `http://127.0.0.1:${port}`,
       LOOPBACK_TOKEN: 'tok',
       LOOPBACK_HARNESS: 'codex',
     }),

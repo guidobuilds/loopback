@@ -79,44 +79,44 @@ section('correction scan + turn-state priming', () => {
   assert.ok(core.turnState.isPrimed(core.turnState.readState(TMP, 's')));
 });
 
-// core/config.js — single source of truth for LOOPBACK_INGEST_URL/_TOKEN at
+// core/config.js — single source of truth for LOOPBACK_SERVICE_URL/_TOKEN at
 // ~/.loopback/config.json. Tests run against a throwaway HOME so the real
 // ~/.loopback is never touched. Each test isolates HOME + env to avoid cross-
 // contamination from the suite-level env (process.env).
 section('core/config: precedence flag > env > file > undefined', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-cfg-'));
   const savedHome = process.env.HOME;
-  const savedUrl = process.env.LOOPBACK_INGEST_URL;
+  const savedUrl = process.env.LOOPBACK_SERVICE_URL;
   const savedTok = process.env.LOOPBACK_TOKEN;
   process.env.HOME = home;
-  delete process.env.LOOPBACK_INGEST_URL;
+  delete process.env.LOOPBACK_SERVICE_URL;
   delete process.env.LOOPBACK_TOKEN;
   try {
     // Layer 4: nothing set anywhere -> undefined fields.
     let r = core.config.resolveCredentials({});
-    assert.strictEqual(r.ingestUrl, undefined, 'no source -> undefined url');
+    assert.strictEqual(r.serviceUrl, undefined, 'no source -> undefined url');
     assert.strictEqual(r.token, undefined, 'no source -> undefined token');
 
     // Layer 3: file only.
-    core.config.saveConfig({ ingestUrl: 'http://file/feedback', token: 'tok-file' });
+    core.config.saveConfig({ serviceUrl: 'http://file', token: 'tok-file' });
     r = core.config.resolveCredentials({});
-    assert.strictEqual(r.ingestUrl, 'http://file/feedback');
+    assert.strictEqual(r.serviceUrl, 'http://file');
     assert.strictEqual(r.token, 'tok-file');
 
     // Layer 2: env beats file.
-    process.env.LOOPBACK_INGEST_URL = 'http://env/feedback';
+    process.env.LOOPBACK_SERVICE_URL = 'http://env';
     process.env.LOOPBACK_TOKEN = 'tok-env';
     r = core.config.resolveCredentials({});
-    assert.strictEqual(r.ingestUrl, 'http://env/feedback');
+    assert.strictEqual(r.serviceUrl, 'http://env');
     assert.strictEqual(r.token, 'tok-env');
 
     // Layer 1: flag beats env.
-    r = core.config.resolveCredentials({ flagUrl: 'http://flag/feedback', flagToken: 'tok-flag' });
-    assert.strictEqual(r.ingestUrl, 'http://flag/feedback');
+    r = core.config.resolveCredentials({ flagUrl: 'http://flag', flagToken: 'tok-flag' });
+    assert.strictEqual(r.serviceUrl, 'http://flag');
     assert.strictEqual(r.token, 'tok-flag');
   } finally {
     process.env.HOME = savedHome;
-    if (savedUrl !== undefined) process.env.LOOPBACK_INGEST_URL = savedUrl; else delete process.env.LOOPBACK_INGEST_URL;
+    if (savedUrl !== undefined) process.env.LOOPBACK_SERVICE_URL = savedUrl; else delete process.env.LOOPBACK_SERVICE_URL;
     if (savedTok !== undefined) process.env.LOOPBACK_TOKEN = savedTok; else delete process.env.LOOPBACK_TOKEN;
   }
 });
@@ -126,7 +126,7 @@ section('core/config: saveConfig writes with mode 0600', () => {
   const savedHome = process.env.HOME;
   process.env.HOME = home;
   try {
-    core.config.saveConfig({ ingestUrl: 'http://x/feedback', token: 'tok' });
+    core.config.saveConfig({ serviceUrl: 'http://x', token: 'tok' });
     const p = core.config.configPath();
     assert.ok(fs.existsSync(p), 'config file exists');
     if (process.platform !== 'win32') {
@@ -134,12 +134,103 @@ section('core/config: saveConfig writes with mode 0600', () => {
       assert.strictEqual(mode, 0o600, 'config.json mode: ' + mode.toString(8));
     }
     const loaded = core.config.loadConfig();
-    assert.strictEqual(loaded.ingestUrl, 'http://x/feedback');
+    assert.strictEqual(loaded.serviceUrl, 'http://x');
     assert.strictEqual(loaded.token, 'tok');
-    assert.strictEqual(loaded.schemaVersion, 1);
+    assert.strictEqual(loaded.schemaVersion, 2);
+    assert.strictEqual(loaded.ingestUrl, undefined, 'never persists an ingestUrl field');
   } finally {
     process.env.HOME = savedHome;
   }
+});
+
+// Whitelist-write: saveConfig drops every key that is not part of the
+// canonical schema (`schemaVersion`, `serviceUrl`, `token`). Pre-existing
+// files carrying legacy fields (e.g. the old `ingestUrl`) or arbitrary cruft
+// are sanitized on the next save. Pins the no-reference-to-legacy invariant.
+section('core/config: saveConfig is a strict whitelist (drops unknown + legacy keys)', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-cfg-'));
+  const savedHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    fs.mkdirSync(path.join(home, '.loopback'), { recursive: true });
+    // Legacy fixture: old schemaVersion, legacy ingestUrl, plus arbitrary cruft.
+    fs.writeFileSync(
+      path.join(home, '.loopback', 'config.json'),
+      JSON.stringify({ schemaVersion: 1, ingestUrl: 'http://x/feedback', token: 'OLD', randomCruft: 'y' })
+    );
+    core.config.saveConfig({ serviceUrl: 'http://new', token: 'NEW' });
+    const raw = fs.readFileSync(path.join(home, '.loopback', 'config.json'), 'utf8');
+    const parsed = JSON.parse(raw);
+    assert.deepStrictEqual(
+      Object.keys(parsed).sort(),
+      ['schemaVersion', 'serviceUrl', 'token'].sort(),
+      'on-disk keys must be exactly the canonical whitelist'
+    );
+    assert.strictEqual(parsed.schemaVersion, 2);
+    assert.strictEqual(parsed.serviceUrl, 'http://new');
+    assert.strictEqual(parsed.token, 'NEW');
+    assert.strictEqual(parsed.ingestUrl, undefined, 'no ingestUrl key on disk');
+    assert.strictEqual(parsed.randomCruft, undefined, 'no unknown keys on disk');
+  } finally {
+    process.env.HOME = savedHome;
+  }
+});
+
+// Hard break: pre-existing config files that still carry the old `ingestUrl`
+// field are NOT migrated. The field is silently ignored — loadConfig returns
+// the parsed object with `serviceUrl` left undefined. The user re-runs
+// `loopback config --service-url URL` to populate it.
+section('core/config: legacy ingestUrl field is ignored (no migration)', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-cfg-'));
+  const savedHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    fs.mkdirSync(path.join(home, '.loopback'), { recursive: true });
+    fs.writeFileSync(
+      path.join(home, '.loopback', 'config.json'),
+      JSON.stringify({ schemaVersion: 1, ingestUrl: 'http://x/feedback', token: 'tok-legacy' })
+    );
+    const loaded = core.config.loadConfig();
+    assert.strictEqual(loaded.serviceUrl, undefined, 'legacy ingestUrl is NOT migrated to serviceUrl');
+    assert.strictEqual(loaded.token, 'tok-legacy', 'unrelated fields still load');
+  } finally {
+    process.env.HOME = savedHome;
+  }
+});
+
+// Hard break: LOOPBACK_INGEST_URL is no longer honored as an env fallback. A
+// process exporting only the legacy var (with no LOOPBACK_SERVICE_URL and no
+// file) MUST get back `serviceUrl: undefined`, NOT a /feedback-stripped value.
+section('core/config: LOOPBACK_INGEST_URL env is NOT honored (no fallback)', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-cfg-'));
+  const savedHome = process.env.HOME;
+  const savedUrl = process.env.LOOPBACK_SERVICE_URL;
+  const savedLegacyUrl = process.env.LOOPBACK_INGEST_URL;
+  const savedTok = process.env.LOOPBACK_TOKEN;
+  process.env.HOME = home;
+  delete process.env.LOOPBACK_SERVICE_URL;
+  delete process.env.LOOPBACK_TOKEN;
+  process.env.LOOPBACK_INGEST_URL = 'http://x/feedback';
+  try {
+    const r = core.config.resolveCredentials({});
+    assert.strictEqual(r.serviceUrl, undefined, 'legacy env is not used as a fallback');
+  } finally {
+    process.env.HOME = savedHome;
+    if (savedUrl !== undefined) process.env.LOOPBACK_SERVICE_URL = savedUrl; else delete process.env.LOOPBACK_SERVICE_URL;
+    if (savedLegacyUrl !== undefined) process.env.LOOPBACK_INGEST_URL = savedLegacyUrl; else delete process.env.LOOPBACK_INGEST_URL;
+    if (savedTok !== undefined) process.env.LOOPBACK_TOKEN = savedTok; else delete process.env.LOOPBACK_TOKEN;
+  }
+});
+
+// endpoint() — base + path -> concrete URL. Strips trailing slashes from the
+// base, prepends `/` to path if absent, returns null for missing/empty base.
+section('core/wire.endpoint composes service URL + path', () => {
+  assert.strictEqual(core.wire.endpoint('http://x', '/feedback'), 'http://x/feedback');
+  assert.strictEqual(core.wire.endpoint('http://x/', '/feedback'), 'http://x/feedback');
+  assert.strictEqual(core.wire.endpoint('http://x///', '/feedback'), 'http://x/feedback');
+  assert.strictEqual(core.wire.endpoint('http://x', 'feedback'), 'http://x/feedback');
+  assert.strictEqual(core.wire.endpoint(undefined, '/feedback'), null);
+  assert.strictEqual(core.wire.endpoint('', '/feedback'), null);
 });
 
 section('core/config: loadConfig graceful on missing/invalid', () => {

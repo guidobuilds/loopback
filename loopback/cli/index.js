@@ -6,7 +6,7 @@
  * only exposes the core primitives.
  *
  * Commands:
- *   config [harness...] [--ingest-url URL] [--token TOK]
+ *   config [harness...] [--service-url URL] [--token TOK]
  *                                    one-command installer + credentials writer.
  *                                    Idempotent: first run installs each detected
  *                                    harness and writes ~/.loopback/config.json;
@@ -129,7 +129,7 @@ function main() {
 
     case 'config': {
       // Single user-facing entry point for "configure loopback": writes
-      // ~/.loopback/config.json (when --ingest-url/--token are passed) AND
+      // ~/.loopback/config.json (when --service-url/--token are passed) AND
       // wires the MCP server + skill + command + hooks into each detected (or
       // explicitly named) harness. Idempotent — first run installs, later runs
       // re-sync or rotate credentials. `--show` is the read-only inspector
@@ -138,20 +138,24 @@ function main() {
       const show = rest.includes('--show');
       if (show) {
         const file = core.config.loadConfig();
+        // Show RESOLVED credentials so an env-only setup is still visible
+        // (the resolver applies the same flag > env > file precedence the
+        // MCP server / `list` will use at submit/read time).
+        const resolved = core.config.resolveCredentials({});
         const out = {
           path: core.config.configPath(),
           schemaVersion: file.schemaVersion || null,
-          ingestUrl: file.ingestUrl || null,
-          token: file.token ? redactToken(file.token) : null,
+          serviceUrl: resolved.serviceUrl || null,
+          token: resolved.token ? redactToken(resolved.token) : null,
         };
         process.stdout.write(JSON.stringify(out, null, 2) + '\n');
         return;
       }
       const setupMod = require('./setup');
-      const opts = { harnesses: [], ingestUrl: undefined, token: undefined };
+      const opts = { harnesses: [], serviceUrl: undefined, token: undefined };
       for (let i = 0; i < rest.length; i++) {
         const a = rest[i];
-        if (a === '--ingest-url') opts.ingestUrl = rest[++i];
+        if (a === '--service-url') opts.serviceUrl = rest[++i];
         else if (a === '--token') opts.token = rest[++i];
         else if (a === '--all' || a.startsWith('-')) continue;
         else opts.harnesses.push(a);
@@ -162,10 +166,10 @@ function main() {
 
     case 'uninstall': {
       const setupMod = require('./setup');
-      const opts = { harnesses: [], ingestUrl: undefined, token: undefined };
+      const opts = { harnesses: [], serviceUrl: undefined, token: undefined };
       for (let i = 0; i < rest.length; i++) {
         const a = rest[i];
-        if (a === '--ingest-url') opts.ingestUrl = rest[++i];
+        if (a === '--service-url') opts.serviceUrl = rest[++i];
         else if (a === '--token') opts.token = rest[++i];
         else if (a === '--all' || a.startsWith('-')) continue;
         else opts.harnesses.push(a);
@@ -191,11 +195,11 @@ function usage(specific) {
   process.stderr.write(
     'loopback ' +
       (specific ||
-        'config [harness...] [--ingest-url URL] [--token TOK] | config --show | ' +
+        'config [harness...] [--service-url URL] [--token TOK] | config --show | ' +
         'uninstall [harness...] | ' +
         'list [--format table|json] [--all] [--limit N] [--offset N] [--artifact ID] ' +
         '[--severity low|medium|high] [--confidence low|medium|high] [--email ADDR] ' +
-        '[--from ISO] [--to ISO] [--ingest-url URL] [--token TOK] | ' +
+        '[--from ISO] [--to ISO] [--service-url URL] [--token TOK] | ' +
         'redact | data-dir | mute | scan-correction | record-write | bump-correction | turn-state') +
       '\n'
   );

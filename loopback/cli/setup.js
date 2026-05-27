@@ -28,7 +28,10 @@ const HOOKS_DIR = path.join(PKG_ROOT, 'hooks');
 const OPENCODE_PLUGIN_SRC = path.join(PKG_ROOT, 'adapters', 'opencode', 'plugins', 'loopback.ts');
 
 const HARNESSES = ['claude-code', 'opencode', 'codex'];
-const LOOPBACK_ENV_KEYS = ['LOOPBACK_INGEST_URL', 'LOOPBACK_TOKEN'];
+// LOOPBACK_* keys we recognize in pre-existing harness env blocks. Used by the
+// env-block harvester (splitEnvBlock) to identify which entries to migrate into
+// ~/.loopback/config.json and which to leave alone.
+const LOOPBACK_ENV_KEYS = ['LOOPBACK_SERVICE_URL', 'LOOPBACK_TOKEN'];
 
 function home() {
   return process.env.HOME || os.homedir();
@@ -138,8 +141,8 @@ function migrateLoopbackEnv(loopbackEnv) {
   if (!loopbackEnv || Object.keys(loopbackEnv).length === 0) return false;
   const file = core.config.loadConfig();
   const patch = {};
-  if (!file.ingestUrl && loopbackEnv.LOOPBACK_INGEST_URL) {
-    patch.ingestUrl = loopbackEnv.LOOPBACK_INGEST_URL;
+  if (!file.serviceUrl && loopbackEnv.LOOPBACK_SERVICE_URL) {
+    patch.serviceUrl = loopbackEnv.LOOPBACK_SERVICE_URL;
   }
   if (!file.token && loopbackEnv.LOOPBACK_TOKEN) {
     patch.token = loopbackEnv.LOOPBACK_TOKEN;
@@ -221,7 +224,7 @@ function migrateLegacyEnvBlocks() {
 
 // Parse [mcp_servers.loopback.env] from a TOML string and return:
 //   { content: <rewritten TOML with LOOPBACK_* keys stripped (or section dropped)>,
-//     migrated: { LOOPBACK_INGEST_URL?: string, LOOPBACK_TOKEN?: string } | null }
+//     migrated: { LOOPBACK_SERVICE_URL?: string, LOOPBACK_TOKEN?: string } | null }
 // Stdlib-only; only handles the simple `KEY = "value"` form (which is what
 // installCodex emits). Anything fancier is left untouched and not migrated.
 function migrateCodexEnv(content) {
@@ -486,11 +489,11 @@ function resolveSecrets(opts) {
   // Precedence (flag > env > ~/.loopback/config.json) lives in
   // core.config.resolveCredentials. We keep the `|| ''` boundary so the rest of
   // setup.js can stay on string-truthy checks instead of `=== undefined`.
-  const { ingestUrl, token } = core.config.resolveCredentials({
+  const { serviceUrl, token } = core.config.resolveCredentials({
     flagToken: opts.token,
-    flagUrl: opts.ingestUrl,
+    flagUrl: opts.serviceUrl,
   });
-  return { ingestUrl: ingestUrl || '', token: token || '' };
+  return { serviceUrl: serviceUrl || '', token: token || '' };
 }
 
 const INSTALLERS = {
@@ -525,13 +528,13 @@ function setup(opts) {
   // Persist whatever the user passed on this invocation (or inherited from env)
   // to the single source of truth — but only when at least one explicit value
   // is supplied via flag or env, so a bare `loopback config` re-run is a no-op.
-  if ((opts.ingestUrl || opts.token || process.env.LOOPBACK_INGEST_URL || process.env.LOOPBACK_TOKEN) &&
-      (secrets.ingestUrl || secrets.token)) {
-    core.config.saveConfig({ ingestUrl: secrets.ingestUrl, token: secrets.token });
+  if ((opts.serviceUrl || opts.token || process.env.LOOPBACK_SERVICE_URL || process.env.LOOPBACK_TOKEN) &&
+      (secrets.serviceUrl || secrets.token)) {
+    core.config.saveConfig({ serviceUrl: secrets.serviceUrl, token: secrets.token });
     log(`wrote credentials to ${core.config.configPath()} (mode 0600)`);
   }
-  if (!secrets.ingestUrl || !secrets.token) {
-    warn('LOOPBACK_INGEST_URL / LOOPBACK_TOKEN not provided (flag, env, or ~/.loopback/config.json). Installing anyway; run `loopback config --ingest-url URL --token TOK` before submitting feedback.');
+  if (!secrets.serviceUrl || !secrets.token) {
+    warn('LOOPBACK_SERVICE_URL / LOOPBACK_TOKEN not provided (flag, env, or ~/.loopback/config.json). Installing anyway; run `loopback config --service-url URL --token TOK` before submitting feedback.');
   }
 
   const results = [];

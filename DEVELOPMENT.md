@@ -5,7 +5,7 @@ the central service in Docker, mint per-user tokens, build + install the client
 into your harness, exercise the loop, and read the stored record back.
 
 > For a plain install (not development), end users run
-> `npx @guidobuilds/loopback setup` — see the [README](README.md). For deep
+> `npx @guidobuilds/loopback config` — see the [README](README.md). For deep
 > reference (endpoints, CLI flags, MCP tools, env vars, troubleshooting) see
 > [`docs/`](docs/README.md).
 
@@ -36,12 +36,12 @@ there is no shared server token. The DB persists in the `feedback-data` volume.
 
 ```bash
 cd ../loopback && npm install && npm run build
-node cli/index.js setup claude-code \
-  --ingest-url http://localhost:8080/feedback --token "<developer lpbk_… token>"
+node cli/index.js config claude-code \
+  --service-url http://localhost:8080 --token "<developer lpbk_… token>"
 ```
 
 The client runs on the host and the container publishes `8080` on `localhost`, so
-plain `localhost` works (no `host.docker.internal`). That one `setup` registers
+plain `localhost` works (no `host.docker.internal`). That one `config` registers
 the MCP server + detector skill + `/harness-feedback` command + hooks. Restart the
 harness. Omit `claude-code` to auto-detect every installed agent. Confirm with
 `claude mcp list` / `claude mcp get loopback`.
@@ -58,7 +58,7 @@ Read it back with the **admin** token:
 
 ```bash
 node cli/index.js list \
-  --ingest-url http://localhost:8080/feedback --token "<admin lpbk_… token>"
+  --service-url http://localhost:8080 --token "<admin lpbk_… token>"
 ```
 
 You should see your `prd-writer` record. The store is append-only — send again and
@@ -67,11 +67,11 @@ the corpus gains another record. For the full containerized end-to-end, run
 
 ## Already have Loopback installed? (reconfigure)
 
-`setup` is **idempotent** and preserves your existing config — it is always safe
-to re-run.
+`config` is **idempotent** and preserves your existing settings — it is always
+safe to re-run.
 
-- **Re-run `setup`** only when something it baked in changed: a new
-  `--token`/`--ingest-url`, or after `npm run build` / moving the checkout (it
+- **Re-run `loopback config`** only when something it baked in changed: a new
+  `--token`/`--service-url`, or after `npm run build` / moving the checkout (it
   stores the **absolute** path to `mcp/server.bundle.js`).
 - Otherwise **no reconfigure is needed**.
 - `node cli/index.js uninstall` reverses it.

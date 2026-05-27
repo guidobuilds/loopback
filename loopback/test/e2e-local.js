@@ -11,16 +11,23 @@ const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio
 const core = require('../core');
 
 (async () => {
-  const INGEST = process.env.LOOPBACK_INGEST_URL;
-  const READ = process.env.READ_URL || INGEST;
+  // The service URL is the BASE (no `/feedback`); endpoint paths are derived
+  // here for the admin read-back.
+  const BASE = process.env.LOOPBACK_SERVICE_URL || '';
+  const READ = process.env.READ_URL || (BASE ? BASE.replace(/\/+$/, '') + '/feedback' : '');
   const ADMIN = process.env.ADMIN_TOKEN;
-  assert(INGEST && ADMIN, 'need LOOPBACK_INGEST_URL + ADMIN_TOKEN');
+  assert(BASE && ADMIN, 'need LOOPBACK_SERVICE_URL + ADMIN_TOKEN');
 
+  // The MCP server reads its credentials from process.env / ~/.loopback/config.json.
+  const childEnv = Object.assign({}, process.env, {
+    LOOPBACK_HARNESS: 'claude-code',
+    LOOPBACK_SERVICE_URL: BASE,
+  });
   const transport = new StdioClientTransport({
     command: 'node',
     args: [path.join(__dirname, '..', 'mcp', 'index.js')],
     // Simulate the Claude Code adapter's .mcp.json env (literal harness value).
-    env: Object.assign({}, process.env, { LOOPBACK_HARNESS: 'claude-code' }),
+    env: childEnv,
   });
   const client = new Client({ name: 'e2e', version: '0' });
   await client.connect(transport);

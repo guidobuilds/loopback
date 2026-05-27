@@ -8,12 +8,12 @@ hand** — `loopback config` does it for you.
 ## Install
 
 ```sh
-npx @guidobuilds/loopback config opencode --ingest-url <url> --token <tok>
+npx @guidobuilds/loopback config opencode --service-url <url> --token <tok>
 ```
 
 That single command:
 - registers the MCP server in `~/.config/opencode/opencode.json` (`mcp.loopback`,
-  pointing at the prebuilt bundle, with your ingest URL + token);
+  pointing at the prebuilt bundle; credentials live in `~/.loopback/config.json`);
 - installs `plugins/loopback.ts` into `~/.config/opencode/plugins/` (baking the
   absolute CLI path so no `LOOPBACK_CLI` export is needed);
 - copies the portable skill into `~/.config/opencode/skills/feedback-detector/`;

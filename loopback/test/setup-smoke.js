@@ -1,13 +1,13 @@
 'use strict';
-/* Installer smoke: run `loopback setup` against a throwaway HOME and assert each
+/* Installer smoke: run `loopback config` against a throwaway HOME and assert each
  * harness gets correct, idempotent config + assets. Never touches the real HOME.
  *
  * Post single-source-of-truth migration, this also asserts:
  *   1. NO `env`/`environment` blocks for LOOPBACK_* are written by setup.
  *   2. ~/.loopback/config.json IS written with the supplied credentials at 0600.
- *   3. Legacy env blocks (LOOPBACK_TOKEN/LOOPBACK_INGEST_URL) in any harness
- *      config are migrated into ~/.loopback/config.json and stripped, while
- *      non-loopback env entries survive. */
+ *   3. Pre-existing LOOPBACK_SERVICE_URL/LOOPBACK_TOKEN env blocks in any
+ *      harness config are migrated into ~/.loopback/config.json and stripped,
+ *      while non-loopback env entries survive. */
 
 const fs = require('fs');
 const os = require('os');
@@ -20,7 +20,7 @@ process.env.HOME = tmpHome;
 delete process.env.XDG_CONFIG_HOME;
 // The new config resolver and the installer also honor LOOPBACK_* env vars.
 // Clear them so this suite tests the file-only path deterministically.
-delete process.env.LOOPBACK_INGEST_URL;
+delete process.env.LOOPBACK_SERVICE_URL;
 delete process.env.LOOPBACK_TOKEN;
 
 const setup = require('../cli/setup');
@@ -28,7 +28,8 @@ const core = require('../core');
 
 const BUNDLE = path.resolve(__dirname, '..', 'mcp', 'server.bundle.js');
 const CLI = path.resolve(__dirname, '..', 'cli', 'index.js');
-const secrets = { ingestUrl: 'http://svc.local/feedback', token: 'lpbk_test' };
+// Base service URL (no `/feedback`) — endpoint paths are derived at call time.
+const secrets = { serviceUrl: 'http://svc.local', token: 'lpbk_test' };
 
 function read(p) {
   return fs.readFileSync(p, 'utf8');
@@ -87,7 +88,7 @@ assert.ok(toml.includes('[mcp_servers.loopback]'), 'codex MCP block');
 assert.ok(toml.includes(JSON.stringify(BUNDLE)), 'codex bundle path');
 // No LOOPBACK_* env keys in the TOML.
 assert.ok(!/LOOPBACK_TOKEN\s*=/.test(toml), 'codex: no LOOPBACK_TOKEN in TOML');
-assert.ok(!/LOOPBACK_INGEST_URL\s*=/.test(toml), 'codex: no LOOPBACK_INGEST_URL in TOML');
+assert.ok(!/LOOPBACK_SERVICE_URL\s*=/.test(toml), 'codex: no LOOPBACK_SERVICE_URL in TOML');
 assert.ok(exists(path.join(tmpHome, '.agents', 'skills', 'feedback-detector', 'SKILL.md')), 'codex skill');
 assert.ok(exists(path.join(tmpHome, '.codex', 'prompts', 'harness-feedback.md')), 'codex prompt');
 setup.installCodex(secrets); // idempotent
@@ -126,15 +127,17 @@ delete process.env.XDG_CONFIG_HOME;
 // Force claude CLI "absent" so setup() doesn't try to shell out to it.
 const savedPath2 = process.env.PATH;
 process.env.PATH = '';
-setup.setup({ harnesses: ['claude-code', 'opencode', 'codex'], ingestUrl: secrets.ingestUrl, token: secrets.token });
+setup.setup({ harnesses: ['claude-code', 'opencode', 'codex'], serviceUrl: secrets.serviceUrl, token: secrets.token });
 process.env.PATH = savedPath2;
 
 const cfgPath = path.join(e2eHome, '.loopback', 'config.json');
 assert.ok(exists(cfgPath), '~/.loopback/config.json written by setup');
 const cfg = JSON.parse(read(cfgPath));
-assert.strictEqual(cfg.ingestUrl, secrets.ingestUrl, 'config.json ingestUrl');
+assert.strictEqual(cfg.serviceUrl, secrets.serviceUrl, 'config.json serviceUrl');
+assert.ok(!/\/feedback$/.test(cfg.serviceUrl), 'config.json serviceUrl has no /feedback suffix');
+assert.strictEqual(cfg.ingestUrl, undefined, 'config.json never persists an ingestUrl field');
 assert.strictEqual(cfg.token, secrets.token, 'config.json token');
-assert.strictEqual(cfg.schemaVersion, 1, 'config.json schemaVersion');
+assert.strictEqual(cfg.schemaVersion, 2, 'config.json schemaVersion');
 if (process.platform !== 'win32') {
   const mode = fs.statSync(cfgPath).mode & 0o777;
   assert.strictEqual(mode, 0o600, 'config.json mode is 0600: ' + mode.toString(8));
@@ -153,7 +156,7 @@ const migHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-home-mig-'));
 process.env.HOME = migHome;
 delete process.env.XDG_CONFIG_HOME;
 
-// 1. Legacy ~/.claude.json with LOOPBACK_* env block (+ an unrelated key).
+// 1. Pre-existing ~/.claude.json with LOOPBACK_* env block (+ an unrelated key).
 fs.mkdirSync(migHome, { recursive: true });
 fs.writeFileSync(
   path.join(migHome, '.claude.json'),
@@ -163,7 +166,7 @@ fs.writeFileSync(
         loopback: {
           command: 'node',
           args: ['/old/bundle.js'],
-          env: { LOOPBACK_INGEST_URL: 'http://legacy/feedback', LOOPBACK_TOKEN: 'legacy-tok', MY_DEBUG: '1' },
+          env: { LOOPBACK_SERVICE_URL: 'http://legacy', LOOPBACK_TOKEN: 'legacy-tok', MY_DEBUG: '1' },
         },
       },
     },
@@ -172,7 +175,7 @@ fs.writeFileSync(
   )
 );
 
-// 2. Legacy opencode.json with environment block.
+// 2. Pre-existing opencode.json with environment block.
 fs.mkdirSync(path.join(migHome, '.config', 'opencode'), { recursive: true });
 fs.writeFileSync(
   path.join(migHome, '.config', 'opencode', 'opencode.json'),
@@ -182,7 +185,7 @@ fs.writeFileSync(
         loopback: {
           type: 'local',
           command: ['node', '/old/bundle.js'],
-          environment: { LOOPBACK_INGEST_URL: 'http://legacy-oc/feedback', LOOPBACK_TOKEN: 'legacy-oc-tok', OPENCODE_DBG: 'x' },
+          environment: { LOOPBACK_SERVICE_URL: 'http://legacy-oc', LOOPBACK_TOKEN: 'legacy-oc-tok', OPENCODE_DBG: 'x' },
         },
       },
     },
@@ -191,11 +194,11 @@ fs.writeFileSync(
   )
 );
 
-// 3. Legacy ~/.codex/config.toml with env section.
+// 3. Pre-existing ~/.codex/config.toml with env section.
 fs.mkdirSync(path.join(migHome, '.codex'), { recursive: true });
 fs.writeFileSync(
   path.join(migHome, '.codex', 'config.toml'),
-  '[mcp_servers.loopback]\ncommand = "node"\nargs = ["/old/bundle.js"]\n\n[mcp_servers.loopback.env]\nLOOPBACK_INGEST_URL = "http://legacy-cx/feedback"\nLOOPBACK_TOKEN = "legacy-cx-tok"\nCODEX_KEEP = "yes"\n'
+  '[mcp_servers.loopback]\ncommand = "node"\nargs = ["/old/bundle.js"]\n\n[mcp_servers.loopback.env]\nLOOPBACK_SERVICE_URL = "http://legacy-cx"\nLOOPBACK_TOKEN = "legacy-cx-tok"\nCODEX_KEEP = "yes"\n'
 );
 
 // Run setup WITHOUT flags so migration is the only source of credentials.
@@ -207,9 +210,12 @@ process.env.PATH = savedPath3;
 // ~/.loopback/config.json should now hold the migrated values. Migration
 // reads from whichever harness it encounters first — order in
 // migrateLegacyEnvBlocks is claude-code, opencode, codex; subsequent
-// migrations don't overwrite existing fields.
+// migrations don't overwrite existing fields. Only LOOPBACK_SERVICE_URL and
+// LOOPBACK_TOKEN are recognized in pre-existing harness env blocks.
 const migCfg = JSON.parse(read(path.join(migHome, '.loopback', 'config.json')));
-assert.strictEqual(migCfg.ingestUrl, 'http://legacy/feedback', 'migrated ingestUrl (from .claude.json)');
+assert.strictEqual(migCfg.serviceUrl, 'http://legacy', 'migrated serviceUrl (from .claude.json LOOPBACK_SERVICE_URL)');
+assert.strictEqual(migCfg.ingestUrl, undefined, 'config.json never persists an ingestUrl field');
+assert.strictEqual(migCfg.schemaVersion, 2, 'migrated config.json schemaVersion is 2');
 assert.strictEqual(migCfg.token, 'legacy-tok', 'migrated token (from .claude.json)');
 
 // Claude .claude.json: LOOPBACK_* gone, MY_DEBUG survives.
@@ -228,7 +234,7 @@ assert.deepStrictEqual(
 // Codex: LOOPBACK_* gone from TOML env section, CODEX_KEEP survives.
 const cxAfter = read(path.join(migHome, '.codex', 'config.toml'));
 assert.ok(!/LOOPBACK_TOKEN\s*=/.test(cxAfter), 'codex TOML: LOOPBACK_TOKEN gone');
-assert.ok(!/LOOPBACK_INGEST_URL\s*=/.test(cxAfter), 'codex TOML: LOOPBACK_INGEST_URL gone');
+assert.ok(!/LOOPBACK_SERVICE_URL\s*=/.test(cxAfter), 'codex TOML: LOOPBACK_SERVICE_URL gone');
 assert.ok(/CODEX_KEEP\s*=\s*"yes"/.test(cxAfter), 'codex TOML: CODEX_KEEP preserved');
 
 console.log('✓ migration: legacy LOOPBACK_* env blocks harvested into ~/.loopback/config.json; unrelated env keys preserved');
@@ -241,21 +247,24 @@ console.log('✓ migration: legacy LOOPBACK_* env blocks harvested into ~/.loopb
 const cliHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-home-cli-'));
 const cliEnv = Object.assign({}, process.env, { HOME: cliHome, PATH: '' });
 delete cliEnv.XDG_CONFIG_HOME;
-delete cliEnv.LOOPBACK_INGEST_URL;
+delete cliEnv.LOOPBACK_SERVICE_URL;
 delete cliEnv.LOOPBACK_TOKEN;
 // Pass explicit harnesses so detection doesn't depend on PATH (we cleared it so
-// the installer skips shelling out to `claude mcp add-json`).
+// the installer skips shelling out to `claude mcp add-json`). Pass --service-url
+// with a trailing slash so the resolver gets a non-canonical input and we can
+// confirm it's preserved verbatim (endpoint() normalizes at call time).
 const cliRes = spawnSync(
   process.execPath,
-  [CLI, 'config', 'claude-code', 'opencode', 'codex', '--ingest-url', 'http://test/ingest', '--token', 'TESTTOK'],
+  [CLI, 'config', 'claude-code', 'opencode', 'codex', '--service-url', 'http://test/', '--token', 'TESTTOK'],
   { env: cliEnv, encoding: 'utf8' }
 );
 assert.strictEqual(cliRes.status, 0, 'CLI exit 0 for `config`; stderr=' + cliRes.stderr);
 const cliCfgPath = path.join(cliHome, '.loopback', 'config.json');
 assert.ok(exists(cliCfgPath), 'CLI: ~/.loopback/config.json written');
 const cliCfg = JSON.parse(read(cliCfgPath));
-assert.strictEqual(cliCfg.ingestUrl, 'http://test/ingest', 'CLI: config.json ingestUrl');
+assert.strictEqual(cliCfg.serviceUrl, 'http://test/', 'CLI: config.json serviceUrl (preserved as given)');
 assert.strictEqual(cliCfg.token, 'TESTTOK', 'CLI: config.json token');
+assert.strictEqual(cliCfg.schemaVersion, 2, 'CLI: config.json schemaVersion');
 if (process.platform !== 'win32') {
   const cliMode = fs.statSync(cliCfgPath).mode & 0o777;
   assert.strictEqual(cliMode, 0o600, 'CLI: config.json mode is 0600: ' + cliMode.toString(8));

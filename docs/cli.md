@@ -8,7 +8,7 @@ intentionally stdlib-only (no third-party arg parser).
 
 ```bash
 # published package (auto-detects installed agents):
-npx @guidobuilds/loopback config --ingest-url <url> --token <tok>
+npx @guidobuilds/loopback config --service-url <url> --token <tok>
 
 # from a checkout (run the local CLI directly):
 cd loopback && npm install && npm run build   # build mcp/server.bundle.js (uses bun)
@@ -23,7 +23,7 @@ rebuild the bundle or run the tests.
 
 | Command | Purpose |
 |---------|---------|
-| `config [harness…] [--ingest-url URL] [--token TOK]` | Install loopback into one or more harnesses **and** write credentials to `~/.loopback/config.json`. With no harness names, **auto-detects** installed agents. Idempotent — same verb for first install, credential rotation, and re-sync. See [Files config writes](#files-config-writes-per-harness). |
+| `config [harness…] [--service-url URL] [--token TOK]` | Install loopback into one or more harnesses **and** write credentials to `~/.loopback/config.json`. With no harness names, **auto-detects** installed agents. Idempotent — same verb for first install, credential rotation, and re-sync. `--service-url` is the **base** service URL (no `/feedback`); endpoint paths are derived per call. See [Files config writes](#files-config-writes-per-harness). |
 | `config --show` | Print the resolved credentials (token redacted) and the config file path. Read-only. |
 | `uninstall [harness…]` | Reverse `config` for the named (or auto-detected) harnesses. |
 | `list [flags]` | Read stored feedback back from the admin-only `GET /feedback`. See [`list` flags](#list-flags). |
@@ -38,8 +38,9 @@ Harness names are `claude-code`, `opencode`, `codex`.
 
 ### `list` flags
 
-`loopback list` requires an **admin** token (`GET /feedback` is admin-only) and
-the full `/feedback` URL. Flags map onto the service's
+`loopback list` requires an **admin** token (`GET /feedback` is admin-only)
+and the base service URL (the `/feedback` path is appended internally). Flags
+map onto the service's
 [`GET /feedback`](service.md#get-feedback-pagination) query.
 
 | Flag | Default | Effect |
@@ -54,7 +55,7 @@ the full `/feedback` URL. Flags map onto the service's
 | `--email ADDR` | — | Filter by submitter email. |
 | `--from ISO` | — | Inclusive `received_from` (server receive time `>=`). |
 | `--to ISO` | — | Inclusive `received_to` (server receive time `<=`). |
-| `--ingest-url URL` | `$LOOPBACK_INGEST_URL` | The full `/feedback` URL. |
+| `--service-url URL` | `$LOOPBACK_SERVICE_URL` | The base service URL (no `/feedback`). |
 | `--token TOK` | `$LOOPBACK_TOKEN` | Admin bearer token. |
 
 ```bash
@@ -140,7 +141,7 @@ registration, the hook entries, the plugin, and the copied skill/command/prompt)
 
 - **MCP tools not appearing (Claude Code)** — confirm `config` registered the
   server with `claude mcp list` / `claude mcp get loopback` (check the bundle path
-  and `--ingest-url`/`--token`), then re-run `node cli/index.js config claude-code …`
+  and `--service-url`/`--token`), then re-run `node cli/index.js config claude-code …`
   and **restart** the harness. Asking the model to "list your MCP tools" is
   unreliable in headless `-p` runs.
 

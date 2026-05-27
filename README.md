@@ -49,13 +49,13 @@ Auth is per-user, hashed at rest — no shared server token. (No Docker? Run it 
 ### 2. Install loopback into your agent — one command
 
 ```bash
-npx @guidobuilds/loopback setup \
-  --ingest-url http://localhost:8080/feedback \
+npx @guidobuilds/loopback config \
+  --service-url http://localhost:8080 \
   --token "<the developer token from step 1>"
 ```
 
 No marketplace, no manual config. It **auto-detects** your installed agents (or name them, e.g.
-`… setup claude-code opencode`), wires the MCP server + detector skill + `/harness-feedback`
+`… config claude-code opencode`), wires the MCP server + detector skill + `/harness-feedback`
 command (+ hooks on Claude Code), and is safe to re-run. Restart your agent afterward.
 Remove with `npx @guidobuilds/loopback uninstall`.
 
@@ -78,7 +78,7 @@ curl -s -H "Authorization: Bearer <your admin token>" localhost:8080/feedback
 The canonical reference lives in [`docs/`](docs/README.md):
 
 - [docs/service.md](docs/service.md) — service: endpoints, status codes, auth/token model, persistence, troubleshooting.
-- [docs/cli.md](docs/cli.md) — the `loopback` CLI: commands, `setup`/`list` flags, data dir, files `setup` writes.
+- [docs/cli.md](docs/cli.md) — the `loopback` CLI: commands, `config`/`list` flags, data dir, files `config` writes.
 - [docs/mcp.md](docs/mcp.md) — the MCP server: registration per harness and the six tools.
 - [docs/environment-variables.md](docs/environment-variables.md) — every env var + the data-dir and harness-detection chains.
 
@@ -93,7 +93,7 @@ carries only a synthesized `summary` and a redacted `evidenceExcerpt` — never 
 ## Layout
 
 ```
-loopback/   # npm package: core + MCP server (bundle) + `loopback setup` installer + skill + command + hooks
+loopback/   # npm package: core + MCP server (bundle) + `loopback config` command + skill + command + hooks
 service/    # FastAPI + SQLite append-only ingest service (Docker, tests, e2e)
 tests/      # model-driven detector precision suite
 ```

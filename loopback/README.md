@@ -19,7 +19,7 @@ directly. See the [root README](../README.md) for the project overview + service
 
 ```sh
 # auto-detects your installed agents (or name them, e.g. `… config claude-code opencode`):
-npx @guidobuilds/loopback config --ingest-url <url> --token <tok>
+npx @guidobuilds/loopback config --service-url <url> --token <tok>
 ```
 
 That single command is the whole install: it wires the MCP server + detector
@@ -39,17 +39,20 @@ verb you need: the same command installs the first time, rotates credentials,
 and re-syncs the harness configs — it's fully idempotent.
 
 ```sh
-loopback config --ingest-url <url> --token <tok>   # first install OR rotate both
+loopback config --service-url <url> --token <tok>  # first install OR rotate both
 loopback config --token NEW_TOKEN                  # rotate just the bearer token
-loopback config --ingest-url https://new/path      # change just the service URL
+loopback config --service-url https://new/         # change just the service URL
 loopback config                                    # idempotent re-sync (uses existing creds)
 loopback config --show                             # print resolved values (token redacted)
 ```
 
+The service URL is the base; CLI and MCP derive endpoint paths (`/feedback`,
+etc.) automatically.
+
 **Precedence** (same for every code path):
 
-1. CLI flag (`--token`, `--ingest-url`)
-2. Env var (`LOOPBACK_TOKEN`, `LOOPBACK_INGEST_URL`) — per-session or per-harness override
+1. CLI flag (`--token`, `--service-url`)
+2. Env var (`LOOPBACK_TOKEN`, `LOOPBACK_SERVICE_URL`) — per-session or per-harness override
 3. `~/.loopback/config.json` — the single source of truth
 4. nothing → CLI errors with exit 2; MCP server returns an error
 
@@ -60,11 +63,6 @@ unrelated env entries on re-runs. *Caveat: Claude Code re-registers via the
 `claude mcp` CLI on every `loopback config`, so a manual env block under
 `mcpServers.loopback.env` in `~/.claude.json` must be re-applied after each
 re-run.*
-
-**Migration**: if you had `LOOPBACK_*` env values baked into any harness config
-from an earlier version, the next `loopback config` automatically harvests them
-into `~/.loopback/config.json` (without clobbering anything already there) and
-removes the legacy env entries.
 
 ## Review feedback
 
