@@ -23,10 +23,10 @@ npx @guidobuilds/loopback config --service-url <url> --token <tok>
 ```
 
 That single command is the whole install: it wires the MCP server + detector
-skill + `/harness-feedback` command (+ hooks on Claude Code), writes your
-credentials to `~/.loopback/config.json`, and auto-detects the originating
-harness at runtime. Restart your agent afterward. Remove with
-`npx @guidobuilds/loopback uninstall`.
+skill + `/harness-feedback` command, writes your credentials to
+`~/.loopback/config.json`, and auto-detects the originating harness at runtime.
+Claude Code hooks are opt-in — add `--automatic-feedback-detection` to wire
+them. Restart your agent afterward. Remove with `npx @guidobuilds/loopback uninstall`.
 
 You need the central service running and a per-user token (issued by an admin via
 `service/issue_token.py`).

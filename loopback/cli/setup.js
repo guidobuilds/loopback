@@ -324,7 +324,7 @@ function claudeDir() {
   return path.join(home(), '.claude');
 }
 
-function installClaudeCode(secrets) {
+function installClaudeCode(secrets, options) {
   const actions = [];
 
   // 1. MCP server — register at user scope via the claude CLI (safe, supported).
@@ -346,24 +346,29 @@ function installClaudeCode(secrets) {
     warn('claude CLI not found — skipped MCP registration; install Claude Code, then re-run `loopback config`.');
   }
 
-  // 2. Hooks — merge into ~/.claude/settings.json (idempotent by command string).
-  const settingsPath = path.join(claudeDir(), 'settings.json');
-  const settings = readJSON(settingsPath);
-  settings.hooks = settings.hooks || {};
-  let added = 0;
-  for (const h of CC_HOOKS) {
-    const command = `node "${path.join(HOOKS_DIR, h.script)}"`;
-    const list = (settings.hooks[h.event] = settings.hooks[h.event] || []);
-    const present = list.some((e) => (e.hooks || []).some((x) => x.command === command));
-    if (!present) {
-      const entry = { hooks: [{ type: 'command', command }] };
-      if (h.matcher) entry.matcher = h.matcher;
-      list.push(entry);
-      added++;
+  // 2. Hooks — opt-in via --automatic-feedback-detection. Skipping leaves any
+  // pre-existing hook entries (loopback or otherwise) untouched.
+  if (options && options.automaticFeedbackDetection) {
+    const settingsPath = path.join(claudeDir(), 'settings.json');
+    const settings = readJSON(settingsPath);
+    settings.hooks = settings.hooks || {};
+    let added = 0;
+    for (const h of CC_HOOKS) {
+      const command = `node "${path.join(HOOKS_DIR, h.script)}"`;
+      const list = (settings.hooks[h.event] = settings.hooks[h.event] || []);
+      const present = list.some((e) => (e.hooks || []).some((x) => x.command === command));
+      if (!present) {
+        const entry = { hooks: [{ type: 'command', command }] };
+        if (h.matcher) entry.matcher = h.matcher;
+        list.push(entry);
+        added++;
+      }
     }
+    if (added) writeJSON(settingsPath, settings);
+    actions.push(`wired ${added} hook(s) into settings.json`);
+  } else {
+    actions.push('skipped hook installation (pass --automatic-feedback-detection to enable)');
   }
-  if (added) writeJSON(settingsPath, settings);
-  actions.push(`wired ${added} hook(s) into settings.json`);
 
   // 3. Skill + 4. command.
   copyDir(SKILL_SRC, path.join(claudeDir(), 'skills', 'feedback-detector'));
@@ -380,7 +385,8 @@ function openCodeConfigDir() {
   return xdg ? path.join(xdg, 'opencode') : path.join(home(), '.config', 'opencode');
 }
 
-function installOpenCode(secrets) {
+function installOpenCode(secrets, options) {
+  void options;
   const dir = openCodeConfigDir();
   const actions = [];
 
@@ -447,7 +453,8 @@ function upsertCodexBlock(content, block) {
   return (base ? base + '\n\n' : '') + block.trim() + '\n';
 }
 
-function installCodex(secrets) {
+function installCodex(secrets, options) {
+  void options;
   const configPath = codexConfigPath();
   const actions = [];
 
@@ -504,6 +511,7 @@ const INSTALLERS = {
 
 function setup(opts) {
   opts = opts || {};
+  const automaticFeedbackDetection = !!opts.automaticFeedbackDetection;
   if (!exists(MCP_BUNDLE)) {
     throw new Error('MCP bundle not found at ' + MCP_BUNDLE + ' — run `npm run build` first.');
   }
@@ -540,7 +548,7 @@ function setup(opts) {
   const results = [];
   for (const h of targets) {
     try {
-      const r = INSTALLERS[h](secrets);
+      const r = INSTALLERS[h](secrets, { automaticFeedbackDetection });
       results.push(r);
       log(`\n✓ ${r.harness}  (${r.dir})`);
       for (const a of r.actions) log('  - ' + a);

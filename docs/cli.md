@@ -23,7 +23,7 @@ rebuild the bundle or run the tests.
 
 | Command | Purpose |
 |---------|---------|
-| `config [harness…] [--service-url URL] [--token TOK]` | Install loopback into one or more harnesses **and** write credentials to `~/.loopback/config.json`. With no harness names, **auto-detects** installed agents. Idempotent — same verb for first install, credential rotation, and re-sync. `--service-url` is the **base** service URL (no `/feedback`); endpoint paths are derived per call. See [Files config writes](#files-config-writes-per-harness). |
+| `config [harness…] [--service-url URL] [--token TOK] [--automatic-feedback-detection]` | Install loopback into one or more harnesses **and** write credentials to `~/.loopback/config.json`. With no harness names, **auto-detects** installed agents. Idempotent — same verb for first install, credential rotation, and re-sync. `--service-url` is the **base** service URL (no `/feedback`); endpoint paths are derived per call. Claude Code hooks are opt-in: pass `--automatic-feedback-detection` to wire them. See [Files config writes](#files-config-writes-per-harness). |
 | `config --show` | Print the resolved credentials (token redacted) and the config file path. Read-only. |
 | `uninstall [harness…]` | Reverse `config` for the named (or auto-detected) harnesses. |
 | `list [flags]` | Read stored feedback back from the admin-only `GET /feedback`. See [`list` flags](#list-flags). |
@@ -35,6 +35,15 @@ rebuild the bundle or run the tests.
 | `mute --unmute <id>` | Remove an artifact from the mute list. |
 
 Harness names are `claude-code`, `opencode`, `codex`.
+
+### `config` flags
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| `--service-url URL` | — | Base service URL (no `/feedback`); stored in `~/.loopback/config.json`. |
+| `--token TOK` | — | Bearer token; stored in `~/.loopback/config.json` (mode `0600`). |
+| `--automatic-feedback-detection` | off | Install Claude Code hooks (`PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`) into `~/.claude/settings.json`. Without this flag the MCP server + skill + command are still installed; only the hooks are skipped. No effect on OpenCode/Codex. |
+| `--show` | — | Read-only: print resolved credentials (token redacted) and the config file path. |
 
 ### `list` flags
 
@@ -113,8 +122,10 @@ it after `npm run build` or moving the checkout.
 ### Claude Code
 
 - Registers the MCP server at **user scope** via `claude mcp add-json loopback … -s user`.
-- Merges four hooks into `~/.claude/settings.json`: `PostToolUse` (matcher
-  `Write|Edit`), `UserPromptSubmit`, `Stop`, `SessionStart`.
+- **Only when `--automatic-feedback-detection` is passed**, merges four hooks into
+  `~/.claude/settings.json`: `PostToolUse` (matcher `Write|Edit`),
+  `UserPromptSubmit`, `Stop`, `SessionStart`. Without the flag, existing hook
+  entries (loopback or otherwise) are left untouched.
 - Copies the detector skill to `~/.claude/skills/feedback-detector/`.
 - Copies the command to `~/.claude/commands/harness-feedback.md`.
 

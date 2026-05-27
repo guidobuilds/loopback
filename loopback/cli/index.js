@@ -157,6 +157,7 @@ function main() {
         const a = rest[i];
         if (a === '--service-url') opts.serviceUrl = rest[++i];
         else if (a === '--token') opts.token = rest[++i];
+        else if (a === '--automatic-feedback-detection') opts.automaticFeedbackDetection = true;
         else if (a === '--all' || a.startsWith('-')) continue;
         else opts.harnesses.push(a);
       }
