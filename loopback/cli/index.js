@@ -6,9 +6,14 @@
  * only exposes the core primitives.
  *
  * Commands:
- *   setup / uninstall                wire / unwire each detected harness
- *   config --ingest-url URL --token TOK   write ~/.loopback/config.json (rotation)
+ *   config [harness...] [--ingest-url URL] [--token TOK]
+ *                                    one-command installer + credentials writer.
+ *                                    Idempotent: first run installs each detected
+ *                                    harness and writes ~/.loopback/config.json;
+ *                                    later runs re-sync configs and/or rotate
+ *                                    credentials. Same verb, every time.
  *   config --show                    print resolved credentials (token redacted)
+ *   uninstall [harness...]           unwire each detected (or named) harness
  *   redact [text...]                 redact stdin (or args) -> stdout
  *   data-dir                         print the resolved data dir
  *   list [--format table|json] [filters...]   read stored feedback back (admin token)
@@ -122,26 +127,14 @@ function main() {
       return;
     }
 
-    case 'setup':
-    case 'uninstall': {
-      const setupMod = require('./setup');
-      const opts = { harnesses: [], ingestUrl: undefined, token: undefined };
-      for (let i = 0; i < rest.length; i++) {
-        const a = rest[i];
-        if (a === '--ingest-url') opts.ingestUrl = rest[++i];
-        else if (a === '--token') opts.token = rest[++i];
-        else if (a === '--all' || a.startsWith('-')) continue;
-        else opts.harnesses.push(a);
-      }
-      if (cmd === 'setup') setupMod.setup(opts);
-      else setupMod.uninstall(opts);
-      return;
-    }
-
     case 'config': {
-      // Canonical credentials path. `--show` prints the resolved values
-      // (token redacted); otherwise --ingest-url / --token write to
-      // ~/.loopback/config.json. Lazy-required to keep top-level imports cheap.
+      // Single user-facing entry point for "configure loopback": writes
+      // ~/.loopback/config.json (when --ingest-url/--token are passed) AND
+      // wires the MCP server + skill + command + hooks into each detected (or
+      // explicitly named) harness. Idempotent — first run installs, later runs
+      // re-sync or rotate credentials. `--show` is the read-only inspector
+      // (prints resolved values with the token redacted). Lazy-required to
+      // keep top-level imports cheap.
       const show = rest.includes('--show');
       if (show) {
         const file = core.config.loadConfig();
@@ -154,16 +147,30 @@ function main() {
         process.stdout.write(JSON.stringify(out, null, 2) + '\n');
         return;
       }
-      const ingestUrl = flag(rest, '--ingest-url');
-      const token = flag(rest, '--token');
-      if (!ingestUrl && !token) {
-        return usage('config --ingest-url URL --token TOK | config --show');
+      const setupMod = require('./setup');
+      const opts = { harnesses: [], ingestUrl: undefined, token: undefined };
+      for (let i = 0; i < rest.length; i++) {
+        const a = rest[i];
+        if (a === '--ingest-url') opts.ingestUrl = rest[++i];
+        else if (a === '--token') opts.token = rest[++i];
+        else if (a === '--all' || a.startsWith('-')) continue;
+        else opts.harnesses.push(a);
       }
-      const patch = {};
-      if (ingestUrl) patch.ingestUrl = ingestUrl;
-      if (token) patch.token = token;
-      core.config.saveConfig(patch);
-      process.stdout.write(`wrote ${core.config.configPath()} (mode 0600)\n`);
+      setupMod.setup(opts);
+      return;
+    }
+
+    case 'uninstall': {
+      const setupMod = require('./setup');
+      const opts = { harnesses: [], ingestUrl: undefined, token: undefined };
+      for (let i = 0; i < rest.length; i++) {
+        const a = rest[i];
+        if (a === '--ingest-url') opts.ingestUrl = rest[++i];
+        else if (a === '--token') opts.token = rest[++i];
+        else if (a === '--all' || a.startsWith('-')) continue;
+        else opts.harnesses.push(a);
+      }
+      setupMod.uninstall(opts);
       return;
     }
 
@@ -184,8 +191,8 @@ function usage(specific) {
   process.stderr.write(
     'loopback ' +
       (specific ||
-        'setup [harness...] [--ingest-url URL] [--token TOK] | uninstall [harness...] | ' +
-        'config --ingest-url URL --token TOK | config --show | ' +
+        'config [harness...] [--ingest-url URL] [--token TOK] | config --show | ' +
+        'uninstall [harness...] | ' +
         'list [--format table|json] [--all] [--limit N] [--offset N] [--artifact ID] ' +
         '[--severity low|medium|high] [--confidence low|medium|high] [--email ADDR] ' +
         '[--from ISO] [--to ISO] [--ingest-url URL] [--token TOK] | ' +

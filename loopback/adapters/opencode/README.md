@@ -3,12 +3,12 @@
 Brings the harness-agnostic loopback feedback loop to [OpenCode](https://opencode.ai).
 The shared core, MCP server (bundle), and CLI are reused unchanged; this directory
 holds the OpenCode-specific glue (the tripwire plugin). **You don't install this by
-hand** — `loopback setup` does it for you.
+hand** — `loopback config` does it for you.
 
 ## Install
 
 ```sh
-npx @guidobuilds/loopback setup opencode --ingest-url <url> --token <tok>
+npx @guidobuilds/loopback config opencode --ingest-url <url> --token <tok>
 ```
 
 That single command:

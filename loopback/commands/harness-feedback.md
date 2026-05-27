@@ -5,7 +5,7 @@ argument-hint: <artifact-id> <what the skill got wrong>
 
 # /harness-feedback — manual loopback feedback
 
-Canonical, harness-neutral command (installed by `loopback setup` into each
+Canonical, harness-neutral command (installed by `loopback config` into each
 harness's command directory). Use it when auto-detection missed a real defect, or
 when the user explicitly wants to file feedback: "the prd-writer skill botched
 this — file it." Runs the **same** flow as the feedback-detector skill and **never

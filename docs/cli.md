@@ -8,7 +8,7 @@ intentionally stdlib-only (no third-party arg parser).
 
 ```bash
 # published package (auto-detects installed agents):
-npx @guidobuilds/loopback setup --ingest-url <url> --token <tok>
+npx @guidobuilds/loopback config --ingest-url <url> --token <tok>
 
 # from a checkout (run the local CLI directly):
 cd loopback && npm install && npm run build   # build mcp/server.bundle.js (uses bun)
@@ -23,8 +23,9 @@ rebuild the bundle or run the tests.
 
 | Command | Purpose |
 |---------|---------|
-| `setup [harness…] [--ingest-url URL] [--token TOK]` | Install loopback into one or more harnesses. With no harness names, **auto-detects** installed agents. Idempotent. See [Files setup writes](#files-setup-writes-per-harness). |
-| `uninstall [harness…]` | Reverse `setup` for the named (or auto-detected) harnesses. |
+| `config [harness…] [--ingest-url URL] [--token TOK]` | Install loopback into one or more harnesses **and** write credentials to `~/.loopback/config.json`. With no harness names, **auto-detects** installed agents. Idempotent — same verb for first install, credential rotation, and re-sync. See [Files config writes](#files-config-writes-per-harness). |
+| `config --show` | Print the resolved credentials (token redacted) and the config file path. Read-only. |
+| `uninstall [harness…]` | Reverse `config` for the named (or auto-detected) harnesses. |
 | `list [flags]` | Read stored feedback back from the admin-only `GET /feedback`. See [`list` flags](#list-flags). |
 | `redact [text…]` | Redact stdin (or the args) and print to stdout. |
 | `data-dir` | Print the resolved data dir (see [Data dir](#data-dir-resolution)). |
@@ -102,9 +103,9 @@ treated as **unset** and skipped. Print the resolved dir with `loopback data-dir
 | `mutes.json` | `0600` | `{"schemaVersion":1,"muted":["<artifact-id>", …]}` |
 | `turn-state/<session>.json` | — | `{"writes":[{"file_path","at"}],"correctionPrompts":<n>}` (session id is sanitized for the filename) |
 
-## Files `setup` writes (per harness)
+## Files `config` writes (per harness)
 
-`setup` is idempotent (read → merge → write, preserving your other settings) and
+`config` is idempotent (read → merge → write, preserving your other settings) and
 stores the **absolute** path to your checkout's `mcp/server.bundle.js`, so re-run
 it after `npm run build` or moving the checkout.
 
@@ -137,9 +138,9 @@ registration, the hook entries, the plugin, and the copied skill/command/prompt)
 
 ## Troubleshooting
 
-- **MCP tools not appearing (Claude Code)** — confirm `setup` registered the
+- **MCP tools not appearing (Claude Code)** — confirm `config` registered the
   server with `claude mcp list` / `claude mcp get loopback` (check the bundle path
-  and `--ingest-url`/`--token`), then re-run `node cli/index.js setup claude-code …`
+  and `--ingest-url`/`--token`), then re-run `node cli/index.js config claude-code …`
   and **restart** the harness. Asking the model to "list your MCP tools" is
   unreliable in headless `-p` runs.
 

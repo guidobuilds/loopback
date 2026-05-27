@@ -13,6 +13,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const assert = require('assert');
+const { spawnSync } = require('child_process');
 
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-home-'));
 process.env.HOME = tmpHome;
@@ -232,4 +233,46 @@ assert.ok(/CODEX_KEEP\s*=\s*"yes"/.test(cxAfter), 'codex TOML: CODEX_KEEP preser
 
 console.log('✓ migration: legacy LOOPBACK_* env blocks harvested into ~/.loopback/config.json; unrelated env keys preserved');
 
-console.log('\nSETUP SMOKE OK (homes: ' + tmpHome + ', ' + e2eHome + ', ' + migHome + ')');
+/* ── CLI dispatch: `loopback config …` routes to setup() correctly ── */
+// Spawn the actual CLI binary in a fresh HOME and assert the end state matches
+// what the direct setup() tests above produced. Proves the dispatch in
+// cli/index.js wires the `config` subcommand to the installer (no regressions
+// in arg parsing or the lazy require of ./setup).
+const cliHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-home-cli-'));
+const cliEnv = Object.assign({}, process.env, { HOME: cliHome, PATH: '' });
+delete cliEnv.XDG_CONFIG_HOME;
+delete cliEnv.LOOPBACK_INGEST_URL;
+delete cliEnv.LOOPBACK_TOKEN;
+// Pass explicit harnesses so detection doesn't depend on PATH (we cleared it so
+// the installer skips shelling out to `claude mcp add-json`).
+const cliRes = spawnSync(
+  process.execPath,
+  [CLI, 'config', 'claude-code', 'opencode', 'codex', '--ingest-url', 'http://test/ingest', '--token', 'TESTTOK'],
+  { env: cliEnv, encoding: 'utf8' }
+);
+assert.strictEqual(cliRes.status, 0, 'CLI exit 0 for `config`; stderr=' + cliRes.stderr);
+const cliCfgPath = path.join(cliHome, '.loopback', 'config.json');
+assert.ok(exists(cliCfgPath), 'CLI: ~/.loopback/config.json written');
+const cliCfg = JSON.parse(read(cliCfgPath));
+assert.strictEqual(cliCfg.ingestUrl, 'http://test/ingest', 'CLI: config.json ingestUrl');
+assert.strictEqual(cliCfg.token, 'TESTTOK', 'CLI: config.json token');
+if (process.platform !== 'win32') {
+  const cliMode = fs.statSync(cliCfgPath).mode & 0o777;
+  assert.strictEqual(cliMode, 0o600, 'CLI: config.json mode is 0600: ' + cliMode.toString(8));
+}
+// Same invariant as the direct setup() tests: no LOOPBACK_* env blocks in any
+// harness config the installer touched via the CLI path.
+const cliOcPath = path.join(cliHome, '.config', 'opencode', 'opencode.json');
+if (exists(cliOcPath)) {
+  const cliOc = JSON.parse(read(cliOcPath));
+  if (cliOc.mcp && cliOc.mcp.loopback) {
+    assert.strictEqual(cliOc.mcp.loopback.environment, undefined, 'CLI: opencode has no environment block');
+  }
+}
+const cliCodexPath = path.join(cliHome, '.codex', 'config.toml');
+if (exists(cliCodexPath)) {
+  assert.ok(!/LOOPBACK_/.test(read(cliCodexPath)), 'CLI: codex TOML has no LOOPBACK_* keys');
+}
+console.log('✓ CLI dispatch: `loopback config …` wires through to setup() (config.json @ 0600, no env blocks)');
+
+console.log('\nSETUP SMOKE OK (homes: ' + tmpHome + ', ' + e2eHome + ', ' + migHome + ', ' + cliHome + ')');

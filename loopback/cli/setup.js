@@ -1,6 +1,6 @@
 'use strict';
 /*
- * loopback setup — the one-command installer (engram-style).
+ * Internal installer module — exposed to users as `loopback config`.
  *
  * For each detected/requested harness it writes everything automatically, with
  * NO marketplace and NO manual config edits: registers the MCP server (absolute
@@ -340,7 +340,7 @@ function installClaudeCode(secrets) {
     execFileSync('claude', ['mcp', 'add-json', 'loopback', JSON.stringify(spec), '-s', 'user'], { stdio: 'ignore' });
     actions.push('registered MCP server (user scope)');
   } else {
-    warn('claude CLI not found — skipped MCP registration; install Claude Code, then re-run `loopback setup`.');
+    warn('claude CLI not found — skipped MCP registration; install Claude Code, then re-run `loopback config`.');
   }
 
   // 2. Hooks — merge into ~/.claude/settings.json (idempotent by command string).
@@ -508,7 +508,7 @@ function setup(opts) {
     HARNESSES.includes(h)
   );
   if (!targets.length) {
-    warn('no supported harness detected (claude-code/opencode/codex). Pass one explicitly: `loopback setup claude-code`.');
+    warn('no supported harness detected (claude-code/opencode/codex). Pass one explicitly: `loopback config claude-code`.');
     return [];
   }
 
@@ -524,7 +524,7 @@ function setup(opts) {
   const secrets = resolveSecrets(opts);
   // Persist whatever the user passed on this invocation (or inherited from env)
   // to the single source of truth — but only when at least one explicit value
-  // is supplied via flag or env, so a bare `loopback setup` re-run is a no-op.
+  // is supplied via flag or env, so a bare `loopback config` re-run is a no-op.
   if ((opts.ingestUrl || opts.token || process.env.LOOPBACK_INGEST_URL || process.env.LOOPBACK_TOKEN) &&
       (secrets.ingestUrl || secrets.token)) {
     core.config.saveConfig({ ingestUrl: secrets.ingestUrl, token: secrets.token });
