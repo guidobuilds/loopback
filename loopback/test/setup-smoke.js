@@ -99,7 +99,7 @@ console.log('✓ codex: MCP(toml) + skill + prompt + idempotent (no env block)')
 /* ── Claude Code (file parts; force claude CLI "absent" via empty PATH) ── */
 const savedPath = process.env.PATH;
 process.env.PATH = '';
-setup.installClaudeCode(secrets);
+setup.installClaudeCode(secrets, { automaticFeedbackDetection: true });
 const ccSettings = path.join(tmpHome, '.claude', 'settings.json');
 let s = JSON.parse(read(ccSettings));
 for (const ev of ['PostToolUse', 'UserPromptSubmit', 'Stop', 'SessionStart']) {
@@ -111,12 +111,47 @@ assert.ok(exists(path.join(tmpHome, '.claude', 'commands', 'harness-feedback.md'
 s = JSON.parse(read(ccSettings));
 s.hooks.PreToolUse = [{ hooks: [{ type: 'command', command: 'echo keep' }] }];
 fs.writeFileSync(ccSettings, JSON.stringify(s, null, 2));
-setup.installClaudeCode(secrets);
+setup.installClaudeCode(secrets, { automaticFeedbackDetection: true });
 process.env.PATH = savedPath;
 const s2 = JSON.parse(read(ccSettings));
 assert.ok(s2.hooks.PreToolUse, 'preserved unrelated hook');
 assert.strictEqual(s2.hooks.Stop.length, 1, 'Stop hook not duplicated on re-run');
 console.log('✓ claude-code: hooks merge + skill + command + idempotent + preserves existing hooks');
+
+/* ── Claude Code: hooks are opt-in (no flag => no hook entries) ── */
+const noHookHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-home-nohook-'));
+process.env.HOME = noHookHome;
+delete process.env.XDG_CONFIG_HOME;
+const savedPathNH = process.env.PATH;
+process.env.PATH = '';
+const noHookResult = setup.installClaudeCode(secrets);
+process.env.PATH = savedPathNH;
+const noHookSettings = path.join(noHookHome, '.claude', 'settings.json');
+if (exists(noHookSettings)) {
+  const ns = JSON.parse(read(noHookSettings));
+  const hookEvents = ns.hooks ? Object.keys(ns.hooks) : [];
+  for (const ev of hookEvents) {
+    const entries = ns.hooks[ev] || [];
+    for (const entry of entries) {
+      for (const x of entry.hooks || []) {
+        assert.ok(
+          !/loopback[\/\\]hooks[\/\\]/.test(String(x.command || '')),
+          'no-flag run must not write loopback hook command: ' + x.command
+        );
+      }
+    }
+  }
+}
+assert.ok(
+  noHookResult.actions.some((a) => /skipped hook installation/.test(a)),
+  'no-flag run reports skipped hook installation in actions'
+);
+// Skill + command still get installed (only hooks are gated).
+assert.ok(exists(path.join(noHookHome, '.claude', 'skills', 'feedback-detector', 'SKILL.md')), 'no-flag run still copies cc skill');
+assert.ok(exists(path.join(noHookHome, '.claude', 'commands', 'harness-feedback.md')), 'no-flag run still copies cc command');
+// Restore HOME for subsequent tests.
+process.env.HOME = tmpHome;
+console.log('✓ claude-code: hooks are opt-in — default install skips them');
 
 /* ── setup() end-to-end: writes ~/.loopback/config.json @ 0600, no env blocks ── */
 // Fresh HOME for the end-to-end run (independent of the per-installer tests
@@ -284,4 +319,62 @@ if (exists(cliCodexPath)) {
 }
 console.log('✓ CLI dispatch: `loopback config …` wires through to setup() (config.json @ 0600, no env blocks)');
 
-console.log('\nSETUP SMOKE OK (homes: ' + tmpHome + ', ' + e2eHome + ', ' + migHome + ', ' + cliHome + ')');
+/* ── CLI dispatch: --automatic-feedback-detection wires hooks; default does not ── */
+const cliFlagHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-home-cli-flag-'));
+const cliFlagEnv = Object.assign({}, process.env, { HOME: cliFlagHome, PATH: '' });
+delete cliFlagEnv.XDG_CONFIG_HOME;
+delete cliFlagEnv.LOOPBACK_SERVICE_URL;
+delete cliFlagEnv.LOOPBACK_TOKEN;
+// 1. no flag => no loopback hook command strings in settings.json.
+const cliNoFlag = spawnSync(
+  process.execPath,
+  [CLI, 'config', 'claude-code', '--service-url', 'http://x', '--token', 't'],
+  { env: cliFlagEnv, encoding: 'utf8' }
+);
+assert.strictEqual(cliNoFlag.status, 0, 'CLI exit 0 for no-flag run; stderr=' + cliNoFlag.stderr);
+assert.ok(/skipped hook installation/.test(cliNoFlag.stdout), 'CLI no-flag stdout mentions skipped hook installation');
+const cliFlagSettings = path.join(cliFlagHome, '.claude', 'settings.json');
+if (exists(cliFlagSettings)) {
+  const sNo = JSON.parse(read(cliFlagSettings));
+  for (const ev of Object.keys(sNo.hooks || {})) {
+    for (const entry of sNo.hooks[ev] || []) {
+      for (const x of entry.hooks || []) {
+        assert.ok(
+          !/loopback[\/\\]hooks[\/\\]/.test(String(x.command || '')),
+          'CLI no-flag run must not write loopback hook command: ' + x.command
+        );
+      }
+    }
+  }
+}
+// 2. with flag => 4 loopback hook entries materialize.
+const cliWithFlag = spawnSync(
+  process.execPath,
+  [CLI, 'config', 'claude-code', '--service-url', 'http://x', '--token', 't', '--automatic-feedback-detection'],
+  { env: cliFlagEnv, encoding: 'utf8' }
+);
+assert.strictEqual(cliWithFlag.status, 0, 'CLI exit 0 for flag run; stderr=' + cliWithFlag.stderr);
+const sYes = JSON.parse(read(cliFlagSettings));
+for (const ev of ['PostToolUse', 'UserPromptSubmit', 'Stop', 'SessionStart']) {
+  const hits = (sYes.hooks[ev] || []).filter((entry) =>
+    (entry.hooks || []).some((x) => /loopback[\/\\]hooks[\/\\]/.test(String(x.command || '')))
+  );
+  assert.strictEqual(hits.length, 1, 'flag run wires hook ' + ev);
+}
+// 3. re-run with flag against the SAME HOME => still 1 loopback entry per event (idempotent).
+const cliWithFlag2 = spawnSync(
+  process.execPath,
+  [CLI, 'config', 'claude-code', '--service-url', 'http://x', '--token', 't', '--automatic-feedback-detection'],
+  { env: cliFlagEnv, encoding: 'utf8' }
+);
+assert.strictEqual(cliWithFlag2.status, 0, 'CLI exit 0 for flag re-run; stderr=' + cliWithFlag2.stderr);
+const sYes2 = JSON.parse(read(cliFlagSettings));
+for (const ev of ['PostToolUse', 'UserPromptSubmit', 'Stop', 'SessionStart']) {
+  const hits = (sYes2.hooks[ev] || []).filter((entry) =>
+    (entry.hooks || []).some((x) => /loopback[\/\\]hooks[\/\\]/.test(String(x.command || '')))
+  );
+  assert.strictEqual(hits.length, 1, 'flag re-run keeps a single loopback hook for ' + ev);
+}
+console.log('✓ CLI dispatch: --automatic-feedback-detection is opt-in + idempotent');
+
+console.log('\nSETUP SMOKE OK (homes: ' + tmpHome + ', ' + e2eHome + ', ' + migHome + ', ' + cliHome + ', ' + cliFlagHome + ')');
