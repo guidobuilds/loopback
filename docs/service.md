@@ -189,4 +189,4 @@ Four tables:
 ---
 
 See also: [environment-variables.md](environment-variables.md) ·
-[cli.md](cli.md) (the `loopback list` read-back) · [`../DEVELOPMENT.md`](../DEVELOPMENT.md) (how to run it end to end).
+[cli.md](cli.md) (the `loopback feedback list` read-back) · [`../DEVELOPMENT.md`](../DEVELOPMENT.md) (how to run it end to end).

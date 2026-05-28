@@ -11,7 +11,7 @@ it to a central append-only store the artifact's authors can review.
 | Doc | Covers |
 |-----|--------|
 | [service.md](service.md) | The FastAPI ingest service: how to run it, endpoints, status codes, auth/token model, persistence, troubleshooting. |
-| [cli.md](cli.md) | The `loopback` CLI: user-facing vs. internal commands, `setup`/`list` flags, the data dir, and the files `setup` writes per harness. |
+| [cli.md](cli.md) | The `loopback` CLI: user-facing vs. internal commands, `auth`/`setup`/`feedback list` flags, the data dir, and the files `setup <harness>` writes. |
 | [mcp.md](mcp.md) | The MCP server: registration per harness and the six tools (inputs + output shapes). |
 | [environment-variables.md](environment-variables.md) | Every env var (service, client, detection, test-only) plus the data-dir and harness-detection chains. |
 
@@ -21,5 +21,5 @@ it to a central append-only store the artifact's authors can review.
   the CLI), see [`../DEVELOPMENT.md`](../DEVELOPMENT.md).
 - To **install the published package**, see [`../README.md`](../README.md) and
   [`../loopback/README.md`](../loopback/README.md)
-  (`npx @guidobuilds/loopback config`).
+  (`npx @guidobuilds/loopback auth` then `npx @guidobuilds/loopback setup <harness>`).
 - The **service** package README is [`../service/README.md`](../service/README.md).

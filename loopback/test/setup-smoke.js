@@ -1,13 +1,17 @@
 'use strict';
-/* Installer smoke: run `loopback config` against a throwaway HOME and assert each
- * harness gets correct, idempotent config + assets. Never touches the real HOME.
+/* Installer smoke: drive `loopback auth` and `loopback setup <harness>`
+ * against a throwaway HOME and assert each harness gets correct, idempotent
+ * config + assets. Never touches the real HOME.
  *
- * Post single-source-of-truth migration, this also asserts:
+ * Invariants asserted here:
  *   1. NO `env`/`environment` blocks for LOOPBACK_* are written by setup.
- *   2. ~/.loopback/config.json IS written with the supplied credentials at 0600.
- *   3. Pre-existing LOOPBACK_SERVICE_URL/LOOPBACK_TOKEN env blocks in any
- *      harness config are migrated into ~/.loopback/config.json and stripped,
- *      while non-loopback env entries survive. */
+ *   2. `loopback auth` writes ~/.loopback/config.json at 0600 with the
+ *      canonical schema { schemaVersion: 2, serviceUrl, token }.
+ *   3. `loopback setup <harness>` exits 1 with an actionable message when
+ *      ~/.loopback/config.json is missing (no creds).
+ *   4. The per-harness installers are idempotent and preserve unrelated user
+ *      config (e.g. other MCP servers, unrelated hooks).
+ */
 
 const fs = require('fs');
 const os = require('os');
@@ -18,8 +22,8 @@ const { spawnSync } = require('child_process');
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-home-'));
 process.env.HOME = tmpHome;
 delete process.env.XDG_CONFIG_HOME;
-// The new config resolver and the installer also honor LOOPBACK_* env vars.
-// Clear them so this suite tests the file-only path deterministically.
+// The resolver and the installer also honor LOOPBACK_* env vars. Clear them so
+// this suite tests the file-only path deterministically.
 delete process.env.LOOPBACK_SERVICE_URL;
 delete process.env.LOOPBACK_TOKEN;
 
@@ -28,8 +32,6 @@ const core = require('../core');
 
 const BUNDLE = path.resolve(__dirname, '..', 'mcp', 'server.bundle.js');
 const CLI = path.resolve(__dirname, '..', 'cli', 'index.js');
-// Base service URL (no `/feedback`) — endpoint paths are derived at call time.
-const secrets = { serviceUrl: 'http://svc.local', token: 'lpbk_test' };
 
 function read(p) {
   return fs.readFileSync(p, 'utf8');
@@ -43,8 +45,11 @@ function exists(p) {
   }
 }
 
+// Seed credentials so the direct installer calls below pass requireAuth.
+core.config.saveConfig({ serviceUrl: 'http://svc.local', token: 'lpbk_test' });
+
 /* ── OpenCode ── */
-setup.installOpenCode(secrets);
+setup.installOpenCode();
 const ocPath = path.join(tmpHome, '.config', 'opencode', 'opencode.json');
 const oc = JSON.parse(read(ocPath));
 assert.deepStrictEqual(oc.mcp.loopback.command, ['node', BUNDLE], 'opencode MCP command');
@@ -59,29 +64,29 @@ console.log('✓ opencode: MCP + plugin(baked) + skill + command (no env block)'
 
 // preserves unrelated config + idempotent
 fs.writeFileSync(ocPath, JSON.stringify({ theme: 'dark', mcp: { other: { type: 'local', command: ['x'] } } }, null, 2));
-setup.installOpenCode(secrets);
+setup.installOpenCode();
 const oc2 = JSON.parse(read(ocPath));
 assert.strictEqual(oc2.theme, 'dark', 'preserved unrelated key');
 assert.ok(oc2.mcp.other, 'preserved other MCP server');
 assert.ok(oc2.mcp.loopback, 'added loopback alongside');
 console.log('✓ opencode: idempotent + preserves existing config');
 
-// Preserves non-loopback survivors in the loopback entry's environment block.
+// Preserves the user's env block verbatim across re-runs (no filtering).
 fs.writeFileSync(
   ocPath,
   JSON.stringify(
-    { mcp: { loopback: { type: 'local', command: ['old'], environment: { MY_PROXY: 'http://p', LOOPBACK_TOKEN: 'leftover' } } } },
+    { mcp: { loopback: { type: 'local', command: ['old'], environment: { MY_PROXY: 'http://p' } } } },
     null,
     2
   )
 );
-setup.installOpenCode(secrets);
+setup.installOpenCode();
 const oc3 = JSON.parse(read(ocPath));
-assert.deepStrictEqual(oc3.mcp.loopback.environment, { MY_PROXY: 'http://p' }, 'opencode: non-loopback env survivor preserved, LOOPBACK_TOKEN stripped');
-console.log('✓ opencode: preserves non-loopback env survivors, strips LOOPBACK_*');
+assert.deepStrictEqual(oc3.mcp.loopback.environment, { MY_PROXY: 'http://p' }, 'opencode: user env block preserved verbatim');
+console.log('✓ opencode: preserves user env block across re-runs');
 
 /* ── Codex ── */
-setup.installCodex(secrets);
+setup.installCodex();
 const codexCfg = path.join(tmpHome, '.codex', 'config.toml');
 let toml = read(codexCfg);
 assert.ok(toml.includes('[mcp_servers.loopback]'), 'codex MCP block');
@@ -91,7 +96,7 @@ assert.ok(!/LOOPBACK_TOKEN\s*=/.test(toml), 'codex: no LOOPBACK_TOKEN in TOML');
 assert.ok(!/LOOPBACK_SERVICE_URL\s*=/.test(toml), 'codex: no LOOPBACK_SERVICE_URL in TOML');
 assert.ok(exists(path.join(tmpHome, '.agents', 'skills', 'feedback-detector', 'SKILL.md')), 'codex skill');
 assert.ok(exists(path.join(tmpHome, '.codex', 'prompts', 'harness-feedback.md')), 'codex prompt');
-setup.installCodex(secrets); // idempotent
+setup.installCodex(); // idempotent
 toml = read(codexCfg);
 assert.strictEqual(toml.match(/\[mcp_servers\.loopback\]/g).length, 1, 'codex block not duplicated');
 console.log('✓ codex: MCP(toml) + skill + prompt + idempotent (no env block)');
@@ -99,7 +104,7 @@ console.log('✓ codex: MCP(toml) + skill + prompt + idempotent (no env block)')
 /* ── Claude Code (file parts; force claude CLI "absent" via empty PATH) ── */
 const savedPath = process.env.PATH;
 process.env.PATH = '';
-setup.installClaudeCode(secrets, { automaticFeedbackDetection: true });
+setup.installClaudeCode({ automaticFeedbackDetection: true });
 const ccSettings = path.join(tmpHome, '.claude', 'settings.json');
 let s = JSON.parse(read(ccSettings));
 for (const ev of ['PostToolUse', 'UserPromptSubmit', 'Stop', 'SessionStart']) {
@@ -111,7 +116,7 @@ assert.ok(exists(path.join(tmpHome, '.claude', 'commands', 'harness-feedback.md'
 s = JSON.parse(read(ccSettings));
 s.hooks.PreToolUse = [{ hooks: [{ type: 'command', command: 'echo keep' }] }];
 fs.writeFileSync(ccSettings, JSON.stringify(s, null, 2));
-setup.installClaudeCode(secrets, { automaticFeedbackDetection: true });
+setup.installClaudeCode({ automaticFeedbackDetection: true });
 process.env.PATH = savedPath;
 const s2 = JSON.parse(read(ccSettings));
 assert.ok(s2.hooks.PreToolUse, 'preserved unrelated hook');
@@ -122,9 +127,11 @@ console.log('✓ claude-code: hooks merge + skill + command + idempotent + prese
 const noHookHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-home-nohook-'));
 process.env.HOME = noHookHome;
 delete process.env.XDG_CONFIG_HOME;
+// Re-seed creds for the new HOME.
+core.config.saveConfig({ serviceUrl: 'http://svc.local', token: 'lpbk_test' });
 const savedPathNH = process.env.PATH;
 process.env.PATH = '';
-const noHookResult = setup.installClaudeCode(secrets);
+const noHookResult = setup.installClaudeCode();
 process.env.PATH = savedPathNH;
 const noHookSettings = path.join(noHookHome, '.claude', 'settings.json');
 if (exists(noHookSettings)) {
@@ -153,228 +160,182 @@ assert.ok(exists(path.join(noHookHome, '.claude', 'commands', 'harness-feedback.
 process.env.HOME = tmpHome;
 console.log('✓ claude-code: hooks are opt-in — default install skips them');
 
-/* ── setup() end-to-end: writes ~/.loopback/config.json @ 0600, no env blocks ── */
-// Fresh HOME for the end-to-end run (independent of the per-installer tests
-// above so we can assert on the file written by setup() exactly).
-const e2eHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-home-e2e-'));
-process.env.HOME = e2eHome;
+/* ── installHarness without auth -> NO_AUTH error ── */
+const noAuthHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-home-noauth-'));
+process.env.HOME = noAuthHome;
 delete process.env.XDG_CONFIG_HOME;
-// Force claude CLI "absent" so setup() doesn't try to shell out to it.
-const savedPath2 = process.env.PATH;
-process.env.PATH = '';
-setup.setup({ harnesses: ['claude-code', 'opencode', 'codex'], serviceUrl: secrets.serviceUrl, token: secrets.token });
-process.env.PATH = savedPath2;
-
-const cfgPath = path.join(e2eHome, '.loopback', 'config.json');
-assert.ok(exists(cfgPath), '~/.loopback/config.json written by setup');
-const cfg = JSON.parse(read(cfgPath));
-assert.strictEqual(cfg.serviceUrl, secrets.serviceUrl, 'config.json serviceUrl');
-assert.ok(!/\/feedback$/.test(cfg.serviceUrl), 'config.json serviceUrl has no /feedback suffix');
-assert.strictEqual(cfg.ingestUrl, undefined, 'config.json never persists an ingestUrl field');
-assert.strictEqual(cfg.token, secrets.token, 'config.json token');
-assert.strictEqual(cfg.schemaVersion, 2, 'config.json schemaVersion');
-if (process.platform !== 'win32') {
-  const mode = fs.statSync(cfgPath).mode & 0o777;
-  assert.strictEqual(mode, 0o600, 'config.json mode is 0600: ' + mode.toString(8));
+let threw = false;
+try {
+  setup.installHarness('claude-code', {});
+} catch (e) {
+  threw = true;
+  assert.strictEqual(e.code, 'NO_AUTH', 'NO_AUTH error code');
+  assert.ok(/loopback auth/.test(e.message), 'error message points to `loopback auth`');
 }
-// Cross-check the harness configs again under the e2e HOME — none contain LOOPBACK_*.
-const e2eOc = JSON.parse(read(path.join(e2eHome, '.config', 'opencode', 'opencode.json')));
-assert.strictEqual(e2eOc.mcp.loopback.environment, undefined, 'e2e opencode: no environment block');
-const e2eToml = read(path.join(e2eHome, '.codex', 'config.toml'));
-assert.ok(!/LOOPBACK_/.test(e2eToml), 'e2e codex: no LOOPBACK_* in TOML');
-console.log('✓ setup(): wrote ~/.loopback/config.json (0600), no env blocks in any harness config');
+assert.ok(threw, 'installHarness without auth must throw');
+console.log('✓ installHarness: requires auth before doing anything');
 
-/* ── Legacy env block migration ── */
-// Fresh HOME again — pre-populate legacy env blocks in each harness's config,
-// then run setup() and verify migration + cleanup.
-const migHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-home-mig-'));
-process.env.HOME = migHome;
-delete process.env.XDG_CONFIG_HOME;
-
-// 1. Pre-existing ~/.claude.json with LOOPBACK_* env block (+ an unrelated key).
-fs.mkdirSync(migHome, { recursive: true });
-fs.writeFileSync(
-  path.join(migHome, '.claude.json'),
-  JSON.stringify(
-    {
-      mcpServers: {
-        loopback: {
-          command: 'node',
-          args: ['/old/bundle.js'],
-          env: { LOOPBACK_SERVICE_URL: 'http://legacy', LOOPBACK_TOKEN: 'legacy-tok', MY_DEBUG: '1' },
-        },
-      },
-    },
-    null,
-    2
-  )
-);
-
-// 2. Pre-existing opencode.json with environment block.
-fs.mkdirSync(path.join(migHome, '.config', 'opencode'), { recursive: true });
-fs.writeFileSync(
-  path.join(migHome, '.config', 'opencode', 'opencode.json'),
-  JSON.stringify(
-    {
-      mcp: {
-        loopback: {
-          type: 'local',
-          command: ['node', '/old/bundle.js'],
-          environment: { LOOPBACK_SERVICE_URL: 'http://legacy-oc', LOOPBACK_TOKEN: 'legacy-oc-tok', OPENCODE_DBG: 'x' },
-        },
-      },
-    },
-    null,
-    2
-  )
-);
-
-// 3. Pre-existing ~/.codex/config.toml with env section.
-fs.mkdirSync(path.join(migHome, '.codex'), { recursive: true });
-fs.writeFileSync(
-  path.join(migHome, '.codex', 'config.toml'),
-  '[mcp_servers.loopback]\ncommand = "node"\nargs = ["/old/bundle.js"]\n\n[mcp_servers.loopback.env]\nLOOPBACK_SERVICE_URL = "http://legacy-cx"\nLOOPBACK_TOKEN = "legacy-cx-tok"\nCODEX_KEEP = "yes"\n'
-);
-
-// Run setup WITHOUT flags so migration is the only source of credentials.
-const savedPath3 = process.env.PATH;
-process.env.PATH = ''; // force "claude CLI absent" so add-json isn't invoked
-setup.setup({ harnesses: ['claude-code', 'opencode', 'codex'] });
-process.env.PATH = savedPath3;
-
-// ~/.loopback/config.json should now hold the migrated values. Migration
-// reads from whichever harness it encounters first — order in
-// migrateLegacyEnvBlocks is claude-code, opencode, codex; subsequent
-// migrations don't overwrite existing fields. Only LOOPBACK_SERVICE_URL and
-// LOOPBACK_TOKEN are recognized in pre-existing harness env blocks.
-const migCfg = JSON.parse(read(path.join(migHome, '.loopback', 'config.json')));
-assert.strictEqual(migCfg.serviceUrl, 'http://legacy', 'migrated serviceUrl (from .claude.json LOOPBACK_SERVICE_URL)');
-assert.strictEqual(migCfg.ingestUrl, undefined, 'config.json never persists an ingestUrl field');
-assert.strictEqual(migCfg.schemaVersion, 2, 'migrated config.json schemaVersion is 2');
-assert.strictEqual(migCfg.token, 'legacy-tok', 'migrated token (from .claude.json)');
-
-// Claude .claude.json: LOOPBACK_* gone, MY_DEBUG survives.
-const ccAfter = JSON.parse(read(path.join(migHome, '.claude.json')));
-const ccEnv = ccAfter.mcpServers && ccAfter.mcpServers.loopback && ccAfter.mcpServers.loopback.env;
-assert.deepStrictEqual(ccEnv, { MY_DEBUG: '1' }, '.claude.json env: LOOPBACK_* stripped, MY_DEBUG preserved');
-
-// OpenCode: LOOPBACK_* gone from environment, OPENCODE_DBG survives.
-const ocAfter = JSON.parse(read(path.join(migHome, '.config', 'opencode', 'opencode.json')));
-assert.deepStrictEqual(
-  ocAfter.mcp.loopback.environment,
-  { OPENCODE_DBG: 'x' },
-  'opencode environment: LOOPBACK_* stripped, OPENCODE_DBG preserved'
-);
-
-// Codex: LOOPBACK_* gone from TOML env section, CODEX_KEEP survives.
-const cxAfter = read(path.join(migHome, '.codex', 'config.toml'));
-assert.ok(!/LOOPBACK_TOKEN\s*=/.test(cxAfter), 'codex TOML: LOOPBACK_TOKEN gone');
-assert.ok(!/LOOPBACK_SERVICE_URL\s*=/.test(cxAfter), 'codex TOML: LOOPBACK_SERVICE_URL gone');
-assert.ok(/CODEX_KEEP\s*=\s*"yes"/.test(cxAfter), 'codex TOML: CODEX_KEEP preserved');
-
-console.log('✓ migration: legacy LOOPBACK_* env blocks harvested into ~/.loopback/config.json; unrelated env keys preserved');
-
-/* ── CLI dispatch: `loopback config …` routes to setup() correctly ── */
-// Spawn the actual CLI binary in a fresh HOME and assert the end state matches
-// what the direct setup() tests above produced. Proves the dispatch in
-// cli/index.js wires the `config` subcommand to the installer (no regressions
-// in arg parsing or the lazy require of ./setup).
-const cliHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-home-cli-'));
-const cliEnv = Object.assign({}, process.env, { HOME: cliHome, PATH: '' });
-delete cliEnv.XDG_CONFIG_HOME;
-delete cliEnv.LOOPBACK_SERVICE_URL;
-delete cliEnv.LOOPBACK_TOKEN;
-// Pass explicit harnesses so detection doesn't depend on PATH (we cleared it so
-// the installer skips shelling out to `claude mcp add-json`). Pass --service-url
-// with a trailing slash so the resolver gets a non-canonical input and we can
-// confirm it's preserved verbatim (endpoint() normalizes at call time).
-const cliRes = spawnSync(
+/* ── CLI: `loopback auth` writes ~/.loopback/config.json @ 0600 ── */
+const authHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-home-auth-'));
+const authEnv = Object.assign({}, process.env, { HOME: authHome, PATH: '' });
+delete authEnv.XDG_CONFIG_HOME;
+delete authEnv.LOOPBACK_SERVICE_URL;
+delete authEnv.LOOPBACK_TOKEN;
+const authRes = spawnSync(
   process.execPath,
-  [CLI, 'config', 'claude-code', 'opencode', 'codex', '--service-url', 'http://test/', '--token', 'TESTTOK'],
-  { env: cliEnv, encoding: 'utf8' }
+  [CLI, 'auth', '--service-url', 'http://test/', '--token', 'lpbk_TESTTOK_1234'],
+  { env: authEnv, encoding: 'utf8' }
 );
-assert.strictEqual(cliRes.status, 0, 'CLI exit 0 for `config`; stderr=' + cliRes.stderr);
-const cliCfgPath = path.join(cliHome, '.loopback', 'config.json');
-assert.ok(exists(cliCfgPath), 'CLI: ~/.loopback/config.json written');
-const cliCfg = JSON.parse(read(cliCfgPath));
-assert.strictEqual(cliCfg.serviceUrl, 'http://test/', 'CLI: config.json serviceUrl (preserved as given)');
-assert.strictEqual(cliCfg.token, 'TESTTOK', 'CLI: config.json token');
-assert.strictEqual(cliCfg.schemaVersion, 2, 'CLI: config.json schemaVersion');
+assert.strictEqual(authRes.status, 0, 'CLI exit 0 for auth; stderr=' + authRes.stderr);
+const authCfgPath = path.join(authHome, '.loopback', 'config.json');
+assert.ok(exists(authCfgPath), 'CLI auth: ~/.loopback/config.json written');
+const authCfg = JSON.parse(read(authCfgPath));
+assert.strictEqual(authCfg.serviceUrl, 'http://test/', 'CLI auth: serviceUrl preserved as given');
+assert.strictEqual(authCfg.token, 'lpbk_TESTTOK_1234', 'CLI auth: token');
+assert.strictEqual(authCfg.schemaVersion, 2, 'CLI auth: schemaVersion');
 if (process.platform !== 'win32') {
-  const cliMode = fs.statSync(cliCfgPath).mode & 0o777;
-  assert.strictEqual(cliMode, 0o600, 'CLI: config.json mode is 0600: ' + cliMode.toString(8));
+  const m = fs.statSync(authCfgPath).mode & 0o777;
+  assert.strictEqual(m, 0o600, 'CLI auth: mode 0600: ' + m.toString(8));
 }
-// Same invariant as the direct setup() tests: no LOOPBACK_* env blocks in any
-// harness config the installer touched via the CLI path.
-const cliOcPath = path.join(cliHome, '.config', 'opencode', 'opencode.json');
-if (exists(cliOcPath)) {
-  const cliOc = JSON.parse(read(cliOcPath));
-  if (cliOc.mcp && cliOc.mcp.loopback) {
-    assert.strictEqual(cliOc.mcp.loopback.environment, undefined, 'CLI: opencode has no environment block');
-  }
-}
-const cliCodexPath = path.join(cliHome, '.codex', 'config.toml');
-if (exists(cliCodexPath)) {
-  assert.ok(!/LOOPBACK_/.test(read(cliCodexPath)), 'CLI: codex TOML has no LOOPBACK_* keys');
-}
-console.log('✓ CLI dispatch: `loopback config …` wires through to setup() (config.json @ 0600, no env blocks)');
+console.log('✓ CLI: `loopback auth` writes config.json @ 0600 with canonical schema');
 
-/* ── CLI dispatch: --automatic-feedback-detection wires hooks; default does not ── */
-const cliFlagHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-home-cli-flag-'));
-const cliFlagEnv = Object.assign({}, process.env, { HOME: cliFlagHome, PATH: '' });
-delete cliFlagEnv.XDG_CONFIG_HOME;
-delete cliFlagEnv.LOOPBACK_SERVICE_URL;
-delete cliFlagEnv.LOOPBACK_TOKEN;
-// 1. no flag => no loopback hook command strings in settings.json.
-const cliNoFlag = spawnSync(
+/* ── CLI: `loopback auth --show` prints redacted token + path ── */
+const showRes = spawnSync(process.execPath, [CLI, 'auth', '--show'], { env: authEnv, encoding: 'utf8' });
+assert.strictEqual(showRes.status, 0, 'CLI exit 0 for auth --show; stderr=' + showRes.stderr);
+const showJson = JSON.parse(showRes.stdout);
+assert.strictEqual(showJson.serviceUrl, 'http://test/', 'show: serviceUrl');
+assert.ok(/^lpbk\*+$/.test(showJson.token), 'show: token is redacted (got ' + showJson.token + ')');
+assert.strictEqual(showJson.schemaVersion, 2);
+assert.ok(showJson.path.endsWith(path.join('.loopback', 'config.json')), 'show: path is config.json');
+console.log('✓ CLI: `loopback auth --show` prints redacted token + path');
+
+/* ── CLI: `loopback auth --token …` rotates token, preserves serviceUrl ── */
+const rotRes = spawnSync(process.execPath, [CLI, 'auth', '--token', 'NEWTOK'], { env: authEnv, encoding: 'utf8' });
+assert.strictEqual(rotRes.status, 0, 'CLI exit 0 for token rotation; stderr=' + rotRes.stderr);
+const rotated = JSON.parse(read(authCfgPath));
+assert.strictEqual(rotated.serviceUrl, 'http://test/', 'rotation preserves serviceUrl');
+assert.strictEqual(rotated.token, 'NEWTOK', 'rotation updates token');
+console.log('✓ CLI: `loopback auth --token …` rotates token, preserves serviceUrl');
+
+/* ── CLI: `loopback setup claude-code` without auth -> exit 1 ── */
+const noAuthCliHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-home-cli-noauth-'));
+const noAuthCliEnv = Object.assign({}, process.env, { HOME: noAuthCliHome, PATH: '' });
+delete noAuthCliEnv.XDG_CONFIG_HOME;
+delete noAuthCliEnv.LOOPBACK_SERVICE_URL;
+delete noAuthCliEnv.LOOPBACK_TOKEN;
+const noAuthSetupRes = spawnSync(
   process.execPath,
-  [CLI, 'config', 'claude-code', '--service-url', 'http://x', '--token', 't'],
-  { env: cliFlagEnv, encoding: 'utf8' }
+  [CLI, 'setup', 'claude-code'],
+  { env: noAuthCliEnv, encoding: 'utf8' }
 );
-assert.strictEqual(cliNoFlag.status, 0, 'CLI exit 0 for no-flag run; stderr=' + cliNoFlag.stderr);
-assert.ok(/skipped hook installation/.test(cliNoFlag.stdout), 'CLI no-flag stdout mentions skipped hook installation');
-const cliFlagSettings = path.join(cliFlagHome, '.claude', 'settings.json');
-if (exists(cliFlagSettings)) {
-  const sNo = JSON.parse(read(cliFlagSettings));
+assert.strictEqual(noAuthSetupRes.status, 1, 'CLI exit 1 for setup without auth');
+assert.ok(/loopback auth/.test(noAuthSetupRes.stderr), 'CLI: stderr points to `loopback auth`');
+console.log('✓ CLI: `loopback setup <harness>` without auth exits 1 with actionable message');
+
+/* ── CLI: full happy-path — auth then setup all three harnesses ── */
+const happyHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-home-happy-'));
+const happyEnv = Object.assign({}, process.env, { HOME: happyHome, PATH: '' });
+delete happyEnv.XDG_CONFIG_HOME;
+delete happyEnv.LOOPBACK_SERVICE_URL;
+delete happyEnv.LOOPBACK_TOKEN;
+let r = spawnSync(process.execPath, [CLI, 'auth', '--service-url', 'http://x', '--token', 't'], { env: happyEnv, encoding: 'utf8' });
+assert.strictEqual(r.status, 0, 'happy: auth; stderr=' + r.stderr);
+for (const h of ['claude-code', 'opencode', 'codex']) {
+  r = spawnSync(process.execPath, [CLI, 'setup', h], { env: happyEnv, encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, 'happy: setup ' + h + '; stderr=' + r.stderr);
+}
+// Cross-check: no LOOPBACK_* env blocks anywhere in the harness configs.
+const hOcPath = path.join(happyHome, '.config', 'opencode', 'opencode.json');
+if (exists(hOcPath)) {
+  const hOc = JSON.parse(read(hOcPath));
+  assert.strictEqual(hOc.mcp.loopback.environment, undefined, 'happy opencode: no environment block');
+}
+const hCxPath = path.join(happyHome, '.codex', 'config.toml');
+if (exists(hCxPath)) {
+  assert.ok(!/LOOPBACK_/.test(read(hCxPath)), 'happy codex: no LOOPBACK_* in TOML');
+}
+console.log('✓ CLI: `auth` then `setup <harness>` x3 works end-to-end');
+
+/* ── CLI: `loopback setup claude-code --automatic-feedback-detection` wires hooks ── */
+const flagHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-home-cli-flag-'));
+const flagEnv = Object.assign({}, process.env, { HOME: flagHome, PATH: '' });
+delete flagEnv.XDG_CONFIG_HOME;
+delete flagEnv.LOOPBACK_SERVICE_URL;
+delete flagEnv.LOOPBACK_TOKEN;
+r = spawnSync(process.execPath, [CLI, 'auth', '--service-url', 'http://x', '--token', 't'], { env: flagEnv, encoding: 'utf8' });
+assert.strictEqual(r.status, 0);
+// 1. no flag => no loopback hook command strings.
+r = spawnSync(process.execPath, [CLI, 'setup', 'claude-code'], { env: flagEnv, encoding: 'utf8' });
+assert.strictEqual(r.status, 0, 'flag-off setup; stderr=' + r.stderr);
+assert.ok(/skipped hook installation/.test(r.stdout), 'flag-off stdout mentions skipped hook installation');
+const flagSettings = path.join(flagHome, '.claude', 'settings.json');
+if (exists(flagSettings)) {
+  const sNo = JSON.parse(read(flagSettings));
   for (const ev of Object.keys(sNo.hooks || {})) {
     for (const entry of sNo.hooks[ev] || []) {
       for (const x of entry.hooks || []) {
         assert.ok(
           !/loopback[\/\\]hooks[\/\\]/.test(String(x.command || '')),
-          'CLI no-flag run must not write loopback hook command: ' + x.command
+          'flag-off run must not write loopback hook command: ' + x.command
         );
       }
     }
   }
 }
-// 2. with flag => 4 loopback hook entries materialize.
-const cliWithFlag = spawnSync(
+// 2. with flag => 4 hook entries materialize.
+r = spawnSync(
   process.execPath,
-  [CLI, 'config', 'claude-code', '--service-url', 'http://x', '--token', 't', '--automatic-feedback-detection'],
-  { env: cliFlagEnv, encoding: 'utf8' }
+  [CLI, 'setup', 'claude-code', '--automatic-feedback-detection'],
+  { env: flagEnv, encoding: 'utf8' }
 );
-assert.strictEqual(cliWithFlag.status, 0, 'CLI exit 0 for flag run; stderr=' + cliWithFlag.stderr);
-const sYes = JSON.parse(read(cliFlagSettings));
+assert.strictEqual(r.status, 0, 'flag-on setup; stderr=' + r.stderr);
+const sYes = JSON.parse(read(flagSettings));
 for (const ev of ['PostToolUse', 'UserPromptSubmit', 'Stop', 'SessionStart']) {
   const hits = (sYes.hooks[ev] || []).filter((entry) =>
     (entry.hooks || []).some((x) => /loopback[\/\\]hooks[\/\\]/.test(String(x.command || '')))
   );
-  assert.strictEqual(hits.length, 1, 'flag run wires hook ' + ev);
+  assert.strictEqual(hits.length, 1, 'flag-on wires hook ' + ev);
 }
-// 3. re-run with flag against the SAME HOME => still 1 loopback entry per event (idempotent).
-const cliWithFlag2 = spawnSync(
+// 3. re-run with flag => still 1 entry per event (idempotent).
+r = spawnSync(
   process.execPath,
-  [CLI, 'config', 'claude-code', '--service-url', 'http://x', '--token', 't', '--automatic-feedback-detection'],
-  { env: cliFlagEnv, encoding: 'utf8' }
+  [CLI, 'setup', 'claude-code', '--automatic-feedback-detection'],
+  { env: flagEnv, encoding: 'utf8' }
 );
-assert.strictEqual(cliWithFlag2.status, 0, 'CLI exit 0 for flag re-run; stderr=' + cliWithFlag2.stderr);
-const sYes2 = JSON.parse(read(cliFlagSettings));
+assert.strictEqual(r.status, 0);
+const sYes2 = JSON.parse(read(flagSettings));
 for (const ev of ['PostToolUse', 'UserPromptSubmit', 'Stop', 'SessionStart']) {
   const hits = (sYes2.hooks[ev] || []).filter((entry) =>
     (entry.hooks || []).some((x) => /loopback[\/\\]hooks[\/\\]/.test(String(x.command || '')))
   );
-  assert.strictEqual(hits.length, 1, 'flag re-run keeps a single loopback hook for ' + ev);
+  assert.strictEqual(hits.length, 1, 'flag-on re-run keeps a single loopback hook for ' + ev);
 }
-console.log('✓ CLI dispatch: --automatic-feedback-detection is opt-in + idempotent');
+console.log('✓ CLI: --automatic-feedback-detection is opt-in + idempotent');
 
-console.log('\nSETUP SMOKE OK (homes: ' + tmpHome + ', ' + e2eHome + ', ' + migHome + ', ' + cliHome + ', ' + cliFlagHome + ')');
+/* ── CLI: feedback list rejects --service-url / --token (strict parser) ── */
+r = spawnSync(
+  process.execPath,
+  [CLI, 'feedback', 'list', '--service-url', 'http://x'],
+  { env: flagEnv, encoding: 'utf8' }
+);
+assert.notStrictEqual(r.status, 0, 'feedback list --service-url must be rejected');
+assert.ok(/Unknown option|service-url/.test(r.stderr), 'stderr mentions unknown flag: ' + r.stderr);
+r = spawnSync(
+  process.execPath,
+  [CLI, 'feedback', 'list', '--token', 'x'],
+  { env: flagEnv, encoding: 'utf8' }
+);
+assert.notStrictEqual(r.status, 0, 'feedback list --token must be rejected');
+assert.ok(/Unknown option|token/.test(r.stderr), 'stderr mentions unknown flag: ' + r.stderr);
+console.log('✓ CLI: feedback list rejects --service-url / --token via strict parser');
+
+/* ── CLI: internal namespace works (scan-correction) ── */
+r = spawnSync(process.execPath, [CLI, 'internal', 'scan-correction', 'no, that is wrong'], { env: flagEnv, encoding: 'utf8' });
+assert.strictEqual(r.status, 0, 'internal scan-correction hits on correction-language');
+assert.ok(/hit/.test(r.stdout), 'internal scan-correction prints hit');
+r = spawnSync(process.execPath, [CLI, 'internal', 'scan-correction', 'also add pagination'], { env: flagEnv, encoding: 'utf8' });
+assert.strictEqual(r.status, 1, 'internal scan-correction misses on neutral text');
+assert.ok(/miss/.test(r.stdout), 'internal scan-correction prints miss');
+console.log('✓ CLI: `loopback internal scan-correction` works as expected');
+
+console.log('\nSETUP SMOKE OK (homes: ' + tmpHome + ', ' + noAuthHome + ', ' + authHome + ', ' + noAuthCliHome + ', ' + happyHome + ', ' + flagHome + ')');

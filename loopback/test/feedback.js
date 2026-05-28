@@ -1,16 +1,18 @@
 'use strict';
-/* Unit + integration checks for the `loopback list` read path:
- *   - cli/list.js flag parsing -> query mapping + table renderer
- *   - core/wire.js fetchRecords against a throwaway HTTP server (mirrors the
- *     server pattern in test/mcp-smoke.js): asserts the GET path + query string
- *     and the Authorization: Bearer header, and that json/table output render.
+/* Unit + integration checks for `loopback feedback list` (the read path):
+ *   - cli/feedback.js flag parsing -> query mapping + table renderer
+ *   - core/wire.js fetchRecords against a throwaway HTTP server: asserts the
+ *     GET path + query string and the Authorization: Bearer header, and that
+ *     json/table output render.
+ *   - parseListArgs rejects --service-url and --token (single-source-of-truth
+ *     invariant: only `loopback auth` accepts credential flags).
  * Invoked from test/run.js. Stdlib `assert` only. */
 
 const http = require('http');
 const assert = require('assert');
 
 const core = require('../core');
-const list = require('../cli/list');
+const feedback = require('../cli/feedback');
 
 function section(name, fn) {
   return Promise.resolve(fn()).then(() => console.log('  ✓ ' + name));
@@ -31,20 +33,35 @@ const SAMPLE = [
 ];
 
 async function run() {
-  console.log('\nloopback list checks:');
+  console.log('\nloopback feedback list checks:');
 
   await section('parseArgs reads format/flags and --all', () => {
-    const o = list.parseListArgs(['--format', 'json', '--all', '--artifact', 'prd-writer', '--severity', 'high']);
+    const o = feedback.parseListArgs(['--format', 'json', '--all', '--artifact', 'prd-writer', '--severity', 'high']);
     assert.strictEqual(o.format, 'json');
     assert.strictEqual(o.all, true);
     assert.strictEqual(o.artifact, 'prd-writer');
     assert.strictEqual(o.severity, 'high');
     // default format is table when --format is absent
-    assert.strictEqual(list.parseListArgs([]).format, 'table');
+    assert.strictEqual(feedback.parseListArgs([]).format, 'table');
+  });
+
+  await section('parseListArgs strictly rejects credential flags', () => {
+    // Single-source-of-truth invariant: `feedback list` does NOT accept
+    // --service-url or --token; credentials come from `loopback auth`.
+    assert.throws(
+      () => feedback.parseListArgs(['--service-url', 'http://x']),
+      /Unknown option/,
+      '--service-url must be rejected by the strict parser'
+    );
+    assert.throws(
+      () => feedback.parseListArgs(['--token', 'x']),
+      /Unknown option/,
+      '--token must be rejected by the strict parser'
+    );
   });
 
   await section('buildQuery maps flags -> query; --all => limit=0', () => {
-    const q = list.buildQuery(list.parseListArgs([
+    const q = feedback.buildQuery(feedback.parseListArgs([
       '--all', '--offset', '5', '--artifact', 'prd-writer',
       '--severity', 'high', '--confidence', 'low', '--email', 'a@b.co',
       '--from', '2026-05-01T00:00:00Z', '--to', '2026-05-31T00:00:00Z',
@@ -60,31 +77,31 @@ async function run() {
       received_to: '2026-05-31T00:00:00Z',
     });
     // --all wins over --limit; unset flags are omitted entirely.
-    const q2 = list.buildQuery(list.parseListArgs(['--limit', '7']));
+    const q2 = feedback.buildQuery(feedback.parseListArgs(['--limit', '7']));
     assert.deepStrictEqual(q2, { limit: '7' });
-    assert.deepStrictEqual(list.buildQuery(list.parseListArgs(['--all', '--limit', '7'])), { limit: 0 });
+    assert.deepStrictEqual(feedback.buildQuery(feedback.parseListArgs(['--all', '--limit', '7'])), { limit: 0 });
   });
 
   await section('table renderer aligns columns + footer count; json pretty-prints', () => {
-    const table = list.renderTable(SAMPLE);
+    const table = feedback.renderTable(SAMPLE);
     assert.ok(table.includes('RECEIVED'), 'header present');
     assert.ok(table.includes('SUMMARY'), 'header present');
     assert.ok(table.includes('prd-writer'), 'artifact id rendered');
     assert.ok(table.includes('alice@example.com'), 'submitter email rendered');
     assert.ok(table.includes('high'), 'severity rendered');
     assert.ok(/\(1 record\)/.test(table), 'footer count present');
-    assert.strictEqual(list.renderTable([]), 'no records');
+    assert.strictEqual(feedback.renderTable([]), 'no records');
 
-    const json = list.renderJson(SAMPLE);
+    const json = feedback.renderJson(SAMPLE);
     assert.deepStrictEqual(JSON.parse(json), SAMPLE);
     assert.ok(json.includes('\n  '), 'json is pretty-printed (indented)');
   });
 
   await section('short() truncates with ascii ellipsis; collapses whitespace', () => {
-    assert.strictEqual(list.short('-', 5), '-');
-    assert.strictEqual(list.short(undefined, 5), '-');
-    assert.strictEqual(list.short('abcdefghij', 8), 'abcde...');
-    assert.strictEqual(list.short('a   b', 10), 'a b');
+    assert.strictEqual(feedback.short('-', 5), '-');
+    assert.strictEqual(feedback.short(undefined, 5), '-');
+    assert.strictEqual(feedback.short('abcdefghij', 8), 'abcde...');
+    assert.strictEqual(feedback.short('a   b', 10), 'a b');
   });
 
   await section('fetchRecords GETs path+query with Bearer header (throwaway server)', async () => {
@@ -110,7 +127,6 @@ async function run() {
       assert.deepStrictEqual(res.body, SAMPLE);
       assert.strictEqual(seenMethod, 'GET');
       assert.strictEqual(seenAuth, 'Bearer admintok');
-      // path is /feedback; query carries set values, drops empty ones (email='').
       assert.ok(seenUrl.startsWith('/feedback?'), 'path is /feedback with query: ' + seenUrl);
       assert.ok(seenUrl.includes('limit=0'), seenUrl);
       assert.ok(seenUrl.includes('severity=high'), seenUrl);

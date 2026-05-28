@@ -7,8 +7,11 @@ intentionally stdlib-only (no third-party arg parser).
 ## Install / build
 
 ```bash
-# published package (auto-detects installed agents):
-npx @guidobuilds/loopback config --service-url <url> --token <tok>
+# published package — write credentials once, then install into each harness:
+npx @guidobuilds/loopback auth --service-url <url> --token <tok>
+npx @guidobuilds/loopback setup claude-code --automatic-feedback-detection
+npx @guidobuilds/loopback setup opencode
+npx @guidobuilds/loopback setup codex
 
 # from a checkout (run the local CLI directly):
 cd loopback && npm install && npm run build   # build mcp/server.bundle.js (uses bun)
@@ -23,10 +26,14 @@ rebuild the bundle or run the tests.
 
 | Command | Purpose |
 |---------|---------|
-| `config [harness…] [--service-url URL] [--token TOK] [--automatic-feedback-detection]` | Install loopback into one or more harnesses **and** write credentials to `~/.loopback/config.json`. With no harness names, **auto-detects** installed agents. Idempotent — same verb for first install, credential rotation, and re-sync. `--service-url` is the **base** service URL (no `/feedback`); endpoint paths are derived per call. Claude Code hooks are opt-in: pass `--automatic-feedback-detection` to wire them. See [Files config writes](#files-config-writes-per-harness). |
-| `config --show` | Print the resolved credentials (token redacted) and the config file path. Read-only. |
-| `uninstall [harness…]` | Reverse `config` for the named (or auto-detected) harnesses. |
-| `list [flags]` | Read stored feedback back from the admin-only `GET /feedback`. See [`list` flags](#list-flags). |
+| `auth [--service-url URL] [--token TOK]` | Write or rotate credentials in `~/.loopback/config.json` (mode `0600`). The **only** command that accepts `--service-url` / `--token`; every other command reads from the file. `--service-url` is the **base** service URL (no `/feedback`); endpoint paths are derived per call. Partial updates allowed (e.g. `--token` alone). |
+| `auth --show` | Print the resolved credentials (token redacted), the schema version, and the config file path. Read-only. |
+| `setup claude-code [--automatic-feedback-detection]` | Install loopback into Claude Code. Requires `auth` to have run first (exits 1 with a hint otherwise). `--automatic-feedback-detection` opt-in wires the four hooks; without it, only the MCP server + skill + command are installed. Idempotent. |
+| `setup codex` | Install loopback into Codex. Requires `auth`. |
+| `setup opencode` | Install loopback into OpenCode. Requires `auth`. |
+| `uninstall <harness>` | Unwire a named harness (`claude-code` / `codex` / `opencode`). |
+| `uninstall --all` | Unwire every detected harness. |
+| `feedback list [flags]` | Read stored feedback back from the admin-only `GET /feedback`. Reads credentials from `~/.loopback/config.json` — does **not** accept `--service-url` / `--token`. See [`feedback list` flags](#feedback-list-flags). |
 | `redact [text…]` | Redact stdin (or the args) and print to stdout. |
 | `data-dir` | Print the resolved data dir (see [Data dir](#data-dir-resolution)). |
 | `mute <id>` | Mute an artifact locally. |
@@ -36,20 +43,12 @@ rebuild the bundle or run the tests.
 
 Harness names are `claude-code`, `opencode`, `codex`.
 
-### `config` flags
+### `feedback list` flags
 
-| Flag | Default | Effect |
-|------|---------|--------|
-| `--service-url URL` | — | Base service URL (no `/feedback`); stored in `~/.loopback/config.json`. |
-| `--token TOK` | — | Bearer token; stored in `~/.loopback/config.json` (mode `0600`). |
-| `--automatic-feedback-detection` | off | Install Claude Code hooks (`PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`) into `~/.claude/settings.json`. Without this flag the MCP server + skill + command are still installed; only the hooks are skipped. No effect on OpenCode/Codex. |
-| `--show` | — | Read-only: print resolved credentials (token redacted) and the config file path. |
-
-### `list` flags
-
-`loopback list` requires an **admin** token (`GET /feedback` is admin-only)
-and the base service URL (the `/feedback` path is appended internally). Flags
-map onto the service's
+`loopback feedback list` requires an **admin** token (`GET /feedback` is
+admin-only). Credentials come from `~/.loopback/config.json` — rotate with
+`loopback auth --token <admin>` if your saved token is user-scope. Flags map
+onto the service's
 [`GET /feedback`](service.md#get-feedback-pagination) query.
 
 | Flag | Default | Effect |
@@ -64,32 +63,31 @@ map onto the service's
 | `--email ADDR` | — | Filter by submitter email. |
 | `--from ISO` | — | Inclusive `received_from` (server receive time `>=`). |
 | `--to ISO` | — | Inclusive `received_to` (server receive time `<=`). |
-| `--service-url URL` | `$LOOPBACK_SERVICE_URL` | The base service URL (no `/feedback`). |
-| `--token TOK` | `$LOOPBACK_TOKEN` | Admin bearer token. |
 
 ```bash
 # whole corpus as JSON, e.g. to feed to a coding agent:
-loopback list --format json --all > feedback.json
+loopback feedback list --format json --all > feedback.json
 # filtered table: high-severity feedback for the prd-writer skill:
-loopback list --severity high --artifact prd-writer
+loopback feedback list --severity high --artifact prd-writer
 # page / filter by submitter / date range:
-loopback list --limit 50 --offset 50
-loopback list --email dev@example.com --from 2026-05-01T00:00:00Z --to 2026-05-31T00:00:00Z
+loopback feedback list --limit 50 --offset 50
+loopback feedback list --email dev@example.com --from 2026-05-01T00:00:00Z --to 2026-05-31T00:00:00Z
 ```
 
-A non-admin token returns a friendly `403`; a missing URL/token exits `2`.
+A non-admin token returns a friendly `403`; missing credentials exit `1` with
+a hint to run `loopback auth …`.
 
 ## Internal / hook-facing commands
 
-These back the deterministic tripwires (Claude Code hooks, OpenCode plugin) and
-are not meant for direct day-to-day use.
+These back the deterministic tripwires (the OpenCode plugin shells out to them;
+Claude Code hooks call `core/*` directly). Not meant for direct day-to-day use.
 
 | Command | Purpose |
 |---------|---------|
-| `scan-correction [text…]` | Exit `0` (+ prints `hit`) if correction-language is present, else `1` (+ `miss`). |
-| `record-write --session <id> --file <path>` | Record that the agent wrote a file this turn. |
-| `bump-correction --session <id>` | Increment + print the per-session re-instruction count. |
-| `turn-state --session <id>` | Print the per-session turn-state JSON (`{state, primed}`). |
+| `internal scan-correction [text…]` | Exit `0` (+ prints `hit`) if correction-language is present, else `1` (+ `miss`). |
+| `internal record-write --session <id> --file <path>` | Record that the agent wrote a file this turn. |
+| `internal bump-correction --session <id>` | Increment + print the per-session re-instruction count. |
+| `internal turn-state --session <id>` | Print the per-session turn-state JSON (`{state, primed}`). |
 
 ## Data dir resolution
 
@@ -113,11 +111,13 @@ treated as **unset** and skipped. Print the resolved dir with `loopback data-dir
 | `mutes.json` | `0600` | `{"schemaVersion":1,"muted":["<artifact-id>", …]}` |
 | `turn-state/<session>.json` | — | `{"writes":[{"file_path","at"}],"correctionPrompts":<n>}` (session id is sanitized for the filename) |
 
-## Files `config` writes (per harness)
+## Files `setup <harness>` writes (per harness)
 
-`config` is idempotent (read → merge → write, preserving your other settings) and
-stores the **absolute** path to your checkout's `mcp/server.bundle.js`, so re-run
-it after `npm run build` or moving the checkout.
+`setup <harness>` is idempotent (read → merge → write, preserving your other
+settings) and stores the **absolute** path to your checkout's
+`mcp/server.bundle.js`, so re-run it after `npm run build` or moving the
+checkout. Credentials are **not** injected into per-harness env blocks — the
+MCP server reads them from `~/.loopback/config.json` at submit time.
 
 ### Claude Code
 
@@ -140,21 +140,26 @@ it after `npm run build` or moving the checkout.
 
 ### Codex
 
-- Adds an `[mcp_servers.loopback]` block (and `[mcp_servers.loopback.env]` if
-  secrets are set) to `~/.codex/config.toml`.
+- Adds an `[mcp_servers.loopback]` block to `~/.codex/config.toml`. If you have
+  manually added env entries under `[mcp_servers.loopback.env]`, they are
+  preserved across re-runs.
 - Copies the skill to `~/.agents/skills/feedback-detector/`.
 - Copies the prompt to `~/.codex/prompts/harness-feedback.md`.
 
-`uninstall` reverses each of the above for the targeted harness (removes the MCP
+`uninstall <harness>` reverses each of the above (removes the MCP
 registration, the hook entries, the plugin, and the copied skill/command/prompt).
 
 ## Troubleshooting
 
-- **MCP tools not appearing (Claude Code)** — confirm `config` registered the
-  server with `claude mcp list` / `claude mcp get loopback` (check the bundle path
-  and `--service-url`/`--token`), then re-run `node cli/index.js config claude-code …`
+- **`setup <harness>` exits 1** — run `loopback auth --service-url <url>
+  --token <tok>` first; `setup` refuses to write a half-configured install.
+- **MCP tools not appearing (Claude Code)** — confirm `setup claude-code`
+  registered the server with `claude mcp list` / `claude mcp get loopback`
+  (check the bundle path), then re-run `node cli/index.js setup claude-code …`
   and **restart** the harness. Asking the model to "list your MCP tools" is
   unreliable in headless `-p` runs.
+- **`feedback list` returns 403** — your saved token is user-scope; rotate to
+  the admin token: `loopback auth --token <admin>`.
 
 ---
 

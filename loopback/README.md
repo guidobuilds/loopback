@@ -6,70 +6,73 @@ defect, identifies which skill/agent produced the corrected output, synthesizes 
 generalizable, de-identified lesson, asks for per-send consent, and submits the
 record to the central ingest service.
 
-loopback is **harness-agnostic**: a shared core + an MCP server + a CLI installer
-(`loopback config`). The **MCP server is the universal interface** — the same
-portable `feedback-detector` skill drives the whole flow by calling its tools, so
-it works identically under Claude Code, OpenCode, and Codex.
+loopback is **harness-agnostic**: a shared core + an MCP server + a small CLI
+(`loopback auth` + `loopback setup <harness>`). The **MCP server is the universal
+interface** — the same portable `feedback-detector` skill drives the whole flow
+by calling its tools, so it works identically under Claude Code, OpenCode, and
+Codex.
 
 This directory is the **npm package** (`@guidobuilds/loopback`). There is no
-Claude Code plugin / marketplace: `loopback config` writes each harness's config
-directly. See the [root README](../README.md) for the project overview + service.
+Claude Code plugin / marketplace: `loopback setup <harness>` writes each
+harness's config directly. See the [root README](../README.md) for the project
+overview + service.
 
 ## Install
 
 ```sh
-# auto-detects your installed agents (or name them, e.g. `… config claude-code opencode`):
-npx @guidobuilds/loopback config --service-url <url> --token <tok>
+# 1. Write credentials once (lives in ~/.loopback/config.json @ 0600)
+npx @guidobuilds/loopback auth --service-url <url> --token <tok>
+
+# 2. Install into each harness you use (idempotent; safe to re-run)
+npx @guidobuilds/loopback setup claude-code --automatic-feedback-detection
+npx @guidobuilds/loopback setup opencode
+npx @guidobuilds/loopback setup codex
 ```
 
-That single command is the whole install: it wires the MCP server + detector
-skill + `/harness-feedback` command, writes your credentials to
-`~/.loopback/config.json`, and auto-detects the originating harness at runtime.
-Claude Code hooks are opt-in — add `--automatic-feedback-detection` to wire
-them. Restart your agent afterward. Remove with `npx @guidobuilds/loopback uninstall`.
+`auth` is the single source of credentials; `setup <harness>` wires the MCP
+server + detector skill + `/harness-feedback` command (+ optional hooks on
+Claude Code via `--automatic-feedback-detection`). Restart your agent
+afterward. Remove with `npx @guidobuilds/loopback uninstall <harness>` or
+`uninstall --all`.
 
-You need the central service running and a per-user token (issued by an admin via
-`service/issue_token.py`).
+You need the central service running and a per-user token (issued by an admin
+via `service/issue_token.py`).
 
 ## Credentials
 
-Credentials live in a single file: `~/.loopback/config.json` (mode `0600`). One
-place, every harness + the CLI read from it. `loopback config` is the **only**
-verb you need: the same command installs the first time, rotates credentials,
-and re-syncs the harness configs — it's fully idempotent.
+Credentials live in a single file: `~/.loopback/config.json` (mode `0600`).
+**Only `loopback auth` writes to it.** Every other command (`feedback list`,
+`setup <harness>`, the MCP server) reads from it — no command accepts
+`--service-url` / `--token` overrides. Authorization (admin vs user, revoked
+tokens) is enforced server-side.
 
 ```sh
-loopback config --service-url <url> --token <tok>  # first install OR rotate both
-loopback config --token NEW_TOKEN                  # rotate just the bearer token
-loopback config --service-url https://new/         # change just the service URL
-loopback config                                    # idempotent re-sync (uses existing creds)
-loopback config --show                             # print resolved values (token redacted)
+loopback auth --service-url <url> --token <tok>  # first install OR rotate both
+loopback auth --token NEW_TOKEN                  # rotate just the bearer token
+loopback auth --service-url https://new/         # change just the service URL
+loopback auth --show                             # print resolved values (token redacted)
 ```
 
 The service URL is the base; CLI and MCP derive endpoint paths (`/feedback`,
 etc.) automatically.
 
-**Precedence** (same for every code path):
+**Resolution order** (same for every code path):
 
-1. CLI flag (`--token`, `--service-url`)
-2. Env var (`LOOPBACK_TOKEN`, `LOOPBACK_SERVICE_URL`) — per-session or per-harness override
-3. `~/.loopback/config.json` — the single source of truth
-4. nothing → CLI errors with exit 2; MCP server returns an error
-
-**Per-harness override** (rare, advanced): add an `env`/`environment` block by
-hand to that harness's MCP config (e.g. `~/.config/opencode/opencode.json`)
-with `LOOPBACK_TOKEN` set to a different value. `loopback config` preserves
-unrelated env entries on re-runs. *Caveat: Claude Code re-registers via the
-`claude mcp` CLI on every `loopback config`, so a manual env block under
-`mcpServers.loopback.env` in `~/.claude.json` must be re-applied after each
-re-run.*
+1. `~/.loopback/config.json` — the single source of truth
+2. `LOOPBACK_TOKEN` / `LOOPBACK_SERVICE_URL` env vars — per-session override
+   (useful for CI/scripts; not used by the CLI's day-to-day flow)
+3. nothing → CLI exits 1 with a "run `loopback auth …`" hint; MCP server
+   returns an error
 
 ## Review feedback
 
 ```sh
-loopback list --format json --all > feedback.json   # whole corpus (needs an ADMIN token)
-loopback list --severity high --artifact prd-writer # filtered table
+loopback feedback list --format json --all > feedback.json   # whole corpus (needs an ADMIN token)
+loopback feedback list --severity high --artifact prd-writer # filtered table
 ```
+
+`feedback list` reads its credentials from `~/.loopback/config.json` — rotate
+to your admin token first (`loopback auth --token <admin>`).
 
 ## Layout
 
@@ -78,7 +81,7 @@ loopback/                       # npm package @guidobuilds/loopback
 ├── core/                       # shared lib: data-dir, redact, mutes, turn/session-state, wire
 │   └── feedback-record.schema.json   # single source-of-truth wire contract
 ├── mcp/index.js · server.bundle.js   # MCP server source + prebuilt bundle (6 tools)
-├── cli/index.js · setup.js     # CLI + the one-command installer
+├── cli/index.js · auth.js · setup.js · feedback.js   # CLI router + verb modules
 ├── skills/feedback-detector/   # one portable detector skill (copied into each harness)
 ├── commands/harness-feedback.md
 ├── hooks/on-*.js               # Claude Code tripwires
@@ -99,8 +102,8 @@ bun test/opencode-plugin-smoke.ts   # OpenCode plugin -> CLI -> core (needs bun)
 
 ## Documentation
 
-- **CLI reference** (all commands + `config`/`list` flags, data dir, files
-  `config` writes) → [`../docs/cli.md`](../docs/cli.md)
+- **CLI reference** (all commands + `auth`/`setup`/`feedback list` flags, data
+  dir, files setup writes) → [`../docs/cli.md`](../docs/cli.md)
 - **MCP reference** (registration + the six tools) →
   [`../docs/mcp.md`](../docs/mcp.md)
 - **Environment variables** →

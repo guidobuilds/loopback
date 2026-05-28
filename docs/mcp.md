@@ -16,8 +16,8 @@ server only validates, redacts, transmits, and tracks state the user approved.
 
 ## Registration
 
-`loopback config` registers the server automatically per harness (see
-[cli.md](cli.md#files-config-writes-per-harness)). The shapes it writes:
+`loopback setup <harness>` registers the server automatically per harness (see
+[cli.md](cli.md#files-setup-harness-writes-per-harness)). The shapes it writes:
 
 **Claude Code** (`claude mcp add-json loopback … -s user`):
 
@@ -40,15 +40,17 @@ command = "node"
 args = ["<abs>/mcp/server.bundle.js"]
 ```
 
-Credentials live in `~/.loopback/config.json` (single source of truth);
-per-harness `env`/`environment` blocks are no longer written by `loopback
-config`. Unrelated env keys the user added by hand are preserved across
-re-runs (OpenCode / Codex).
+Credentials live in `~/.loopback/config.json` (single source of truth) and
+are written exclusively by `loopback auth`. `loopback setup <harness>` never
+writes per-harness `env`/`environment` blocks for `LOOPBACK_*`. Any env keys
+the user added by hand under the loopback entry are preserved across re-runs
+(OpenCode / Codex).
 
 ## Environment
 
-The server reads `LOOPBACK_SERVICE_URL` and `LOOPBACK_TOKEN` (the per-user
-bearer) when submitting, then falls back to `~/.loopback/config.json`. The
+The server reads credentials from `~/.loopback/config.json` (written by
+`loopback auth`). Environment variables `LOOPBACK_SERVICE_URL` /
+`LOOPBACK_TOKEN` still act as a per-session override when set. The
 service URL is the **base** (no `/feedback`); endpoint paths are derived per
 call. The originating harness (`client.harness`) is **auto-detected at
 runtime** from the launching harness's environment (primarily `AI_AGENT`, else

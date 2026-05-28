@@ -1,8 +1,9 @@
 # Environment variables
 
 loopback uses no `.env` files. Every variable below is read directly from the
-process environment. Client values are normally baked into each harness's MCP
-config by `loopback config` (so you rarely export them by hand).
+process environment. Client credentials are normally persisted by `loopback
+auth` to `~/.loopback/config.json` (so you rarely export them by hand); env
+vars act as per-session overrides when set.
 
 ## Service
 
@@ -17,8 +18,8 @@ the DB. See [service.md](service.md#auth-model-per-user-hashed-tokens).
 
 | Name | Required | Default | Controls | Read by |
 |------|----------|---------|----------|---------|
-| `LOOPBACK_SERVICE_URL` | yes, to submit/list | — | The **base** service URL (no `/feedback`). Endpoint paths (`/feedback`, etc.) are derived per call by `core.wire.endpoint()`. | MCP `submit_feedback`, `loopback list` |
-| `LOOPBACK_TOKEN` | yes, to submit/list | — | Per-user bearer token (admin token required for `list`/`GET /feedback`). | MCP `submit_feedback`, `loopback list` |
+| `LOOPBACK_SERVICE_URL` | only as env override | persisted by `loopback auth` | The **base** service URL (no `/feedback`). Endpoint paths (`/feedback`, etc.) are derived per call by `core.wire.endpoint()`. | MCP `submit_feedback`, `loopback feedback list`, `loopback setup` |
+| `LOOPBACK_TOKEN` | only as env override | persisted by `loopback auth` | Per-user bearer token (admin token required for `feedback list` / `GET /feedback`). | MCP `submit_feedback`, `loopback feedback list`, `loopback setup` |
 | `LOOPBACK_DATA_DIR` | no | resolved (see below) | Explicit override for the per-machine state dir. | `loopback/core/data-dir.js` |
 | `LOOPBACK_HARNESS` | no | auto-detected | Override the detected harness label (`client.harness`). Undocumented escape hatch; never written into config. | `loopback/core/data-dir.js` |
 | `LOOPBACK_CLI` | no | absolute path baked by `setup` | Absolute path to `loopback/cli/index.js` used by the OpenCode tripwire plugin. | `adapters/opencode/plugins/loopback.ts` |

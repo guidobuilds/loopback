@@ -12,10 +12,10 @@ import type { Plugin } from "@opencode-ai/plugin"
  *
  * What it does:
  *   - tool.execute.after on write/edit tools -> records the written file
- *     (attribution + same-file-revert signal), via `loopback record-write`.
+ *     (attribution + same-file-revert signal), via `loopback internal record-write`.
  *   - event-bus user messages                -> scans for correction-language and
- *     bumps the per-session counter, via `loopback scan-correction` +
- *     `loopback bump-correction`.
+ *     bumps the per-session counter, via `loopback internal scan-correction` +
+ *     `loopback internal bump-correction`.
  *
  * Limitations vs Claude Code (be honest about these):
  *   - OpenCode has no turn-blocking hook (no Stop equivalent), so it cannot force
@@ -35,9 +35,9 @@ import type { Plugin } from "@opencode-ai/plugin"
 const WRITE_TOOLS = new Set(["write", "edit", "patch", "apply_patch", "multiedit"])
 
 export const loopback: Plugin = async ({ $ }) => {
-  // `loopback config` patches the empty-string fallback below to bake in the
-  // absolute path of loopback/cli/index.js, so the plugin works without the user
-  // having to export LOOPBACK_CLI. (Env var still wins when set.)
+  // `loopback setup opencode` patches the empty-string fallback below to bake
+  // in the absolute path of loopback/cli/index.js, so the plugin works without
+  // the user having to export LOOPBACK_CLI. (Env var still wins when set.)
   const CLI = process.env.LOOPBACK_CLI || ""
   const enabled = CLI.length > 0
 
@@ -80,7 +80,7 @@ export const loopback: Plugin = async ({ $ }) => {
         if (!WRITE_TOOLS.has(tool)) return
         const sid = String(input?.sessionID ?? input?.sessionId ?? "default")
         const file = input?.args?.filePath ?? input?.args?.path ?? input?.args?.file
-        if (file) await loop(["record-write", "--session", sid, "--file", String(file)])
+        if (file) await loop(["internal", "record-write", "--session", sid, "--file", String(file)])
       } catch {
         /* best-effort; never disrupt the session */
       }
@@ -90,8 +90,8 @@ export const loopback: Plugin = async ({ $ }) => {
       try {
         const text = userText(event)
         if (!text) return
-        if ((await loop(["scan-correction", text])) === 0) {
-          await loop(["bump-correction", "--session", sessionId(event)])
+        if ((await loop(["internal", "scan-correction", text])) === 0) {
+          await loop(["internal", "bump-correction", "--session", sessionId(event)])
         }
       } catch {
         /* best-effort; never disrupt the session */

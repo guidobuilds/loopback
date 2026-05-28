@@ -1,28 +1,21 @@
 'use strict';
 /*
- * `loopback list` — read stored feedback back from the service's admin-only
- * GET /feedback and print it as a compact aligned table (default) or pretty
- * JSON. This is the operator's "review all feedback received" path: filter +
- * paginate the corpus, or `--all --format json > feedback.json` to dump the
- * whole thing for feeding to a coding agent.
+ * `loopback feedback list` — read stored feedback back from the service's
+ * admin-only GET /feedback and print it as a compact aligned table (default)
+ * or pretty JSON.
  *
- * Dependency-free by design (the CLI is intentionally stdlib-only): flag
- * parsing uses node:util parseArgs; the HTTP read lives in core/wire.js
- * (native fetch); this module just maps flags -> query, calls fetchRecords,
- * and renders.
+ * Credentials come from ~/.loopback/config.json (via core.config) — this
+ * command does NOT accept --service-url / --token flags. Run `loopback auth
+ * --service-url … --token …` first; rotate with `loopback auth --token …`.
+ * Authorization (admin vs user, revoked tokens) is enforced server-side; we
+ * surface 401/403 with friendly messages instead of raw JSON.
  *
- * Auth: GET /feedback requires an ADMIN token. The token + URL are resolved via
- * core.config.resolveCredentials, which honors --token / --service-url, then
- * the LOOPBACK_TOKEN / LOOPBACK_SERVICE_URL env vars, then
- * ~/.loopback/config.json. The base service URL is combined with `/feedback`
- * via core.wire.endpoint() at call time.
+ * Dependency-free by design: stdlib parseArgs + native fetch (in core/wire).
  */
 
 const { parseArgs } = require('node:util');
 const core = require('../core');
 
-// Flag schema for `loopback list`. Exported so a drift test can assert each
-// declared option also appears in cli/index.js's usage() string.
 const LIST_OPTIONS = {
   'format':      { type: 'string' },
   'limit':       { type: 'string' },
@@ -33,15 +26,9 @@ const LIST_OPTIONS = {
   'email':       { type: 'string' },
   'from':        { type: 'string' },
   'to':          { type: 'string' },
-  'service-url': { type: 'string' },
-  'token':       { type: 'string' },
   'all':         { type: 'boolean' },
 };
 
-// Parse `loopback list` argv into the options shape buildQuery / run consume.
-// Maps kebab-case flag names to camelCase keys for ergonomic downstream use,
-// and applies the table-as-default-format convention. strict: true makes typos
-// throw an "Unknown option" error instead of being silently dropped.
 function parseListArgs(argv) {
   const { values } = parseArgs({
     args: argv,
@@ -60,14 +47,9 @@ function parseListArgs(argv) {
     email: values.email,
     from: values.from,
     to: values.to,
-    serviceUrl: values['service-url'],
-    token: values.token,
   };
 }
 
-// Build the GET /feedback query object from parsed flags. Only set flags are
-// included (fetchRecords drops empty values too). `--all` => limit=0 (the
-// service's "return everything" escape hatch) and wins over an explicit --limit.
 function buildQuery(opts) {
   const q = {};
   if (opts.all) q.limit = 0;
@@ -82,8 +64,6 @@ function buildQuery(opts) {
   return q;
 }
 
-// Single-line truncation with an ASCII ellipsis (mirrors show_latest_feedback.py
-// `_short`). ASCII only so the table renders cleanly in any terminal/pipe.
 function short(value, width) {
   if (value === undefined || value === null || value === '') return '-';
   const s = String(value).replace(/\s+/g, ' ').trim();
@@ -96,7 +76,6 @@ function pad(value, width) {
   return s.length >= width ? s : s + ' '.repeat(width - s.length);
 }
 
-// Column widths for the table renderer (RECEIVED ARTIFACT SEV CONF EMAIL SUMMARY).
 const COLS = { received: 20, artifact: 18, sev: 6, conf: 6, email: 24, summary: 48 };
 
 function renderTable(records) {
@@ -130,48 +109,51 @@ function renderJson(records) {
   return JSON.stringify(records || [], null, 2);
 }
 
-async function run(argv) {
+async function runList(argv) {
   let opts;
   try {
     opts = parseListArgs(argv);
   } catch (err) {
-    process.stderr.write('loopback list: ' + (err && err.message ? err.message : err) + '\n');
+    process.stderr.write('loopback feedback list: ' + (err && err.message ? err.message : err) + '\n');
     process.exit(2);
   }
 
   if (opts.format !== 'table' && opts.format !== 'json') {
-    process.stderr.write(`loopback list: --format must be table or json (got "${opts.format}")\n`);
+    process.stderr.write(`loopback feedback list: --format must be table or json (got "${opts.format}")\n`);
     process.exit(2);
   }
 
-  // Precedence: --flag > env var > ~/.loopback/config.json > error.
-  const { serviceUrl, token } = core.config.resolveCredentials({
-    flagToken: opts.token,
-    flagUrl: opts.serviceUrl,
-  });
-  if (!serviceUrl) {
-    process.stderr.write('loopback list: no service URL — pass --service-url, set LOOPBACK_SERVICE_URL, or run `loopback config --service-url URL`\n');
-    process.exit(2);
-  }
-  if (!token) {
-    process.stderr.write('loopback list: no token — pass --token, set LOOPBACK_TOKEN, or run `loopback config --token TOK` (must be an ADMIN token)\n');
-    process.exit(2);
+  const { serviceUrl, token } = core.config.resolveCredentials({});
+  if (!serviceUrl || !token) {
+    process.stderr.write(
+      'loopback feedback list: no credentials configured — run `loopback auth --service-url URL --token TOK` first ' +
+      '(GET /feedback requires an ADMIN token)\n'
+    );
+    process.exit(1);
   }
 
-  // Derive the concrete GET endpoint from the base service URL.
   const url = core.wire.endpoint(serviceUrl, '/feedback');
   const query = buildQuery(opts);
   const res = await core.wire.fetchRecords({ url, token, query });
 
   if (!res.ok) {
     if (res.status === 401) {
-      process.stderr.write('loopback list: invalid token (401)\n');
+      process.stderr.write(
+        'loopback feedback list: authentication failed — token may be invalid or revoked. ' +
+        'Re-run `loopback auth --token …`.\n'
+      );
     } else if (res.status === 403) {
-      process.stderr.write('loopback list: token is not admin (GET /feedback is admin-only) (403)\n');
+      process.stderr.write(
+        'loopback feedback list: permission denied — `feedback list` requires an admin token. ' +
+        'Your current token is user-scope.\n'
+      );
     } else if (res.status) {
-      process.stderr.write('loopback list: ' + res.error + '\n');
+      process.stderr.write('loopback feedback list: ' + res.error + '\n');
     } else {
-      process.stderr.write('loopback list: could not reach the service — ' + res.error + '\n');
+      process.stderr.write(
+        `loopback feedback list: cannot reach the service at ${serviceUrl} — ` +
+        (res.error || 'network error') + '. Check the URL or re-run `loopback auth --service-url …`.\n'
+      );
     }
     process.exit(1);
   }
@@ -181,4 +163,4 @@ async function run(argv) {
   process.stdout.write(out + '\n');
 }
 
-module.exports = { run, parseListArgs, LIST_OPTIONS, buildQuery, renderTable, renderJson, short };
+module.exports = { runList, parseListArgs, LIST_OPTIONS, buildQuery, renderTable, renderJson, short };

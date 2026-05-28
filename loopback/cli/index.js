@@ -5,27 +5,40 @@
  * hook event from stdin, formatting hook output) lives in each adapter; this CLI
  * only exposes the core primitives.
  *
- * Commands:
- *   config [harness...] [--service-url URL] [--token TOK]
- *                                    one-command installer + credentials writer.
- *                                    Idempotent: first run installs each detected
- *                                    harness and writes ~/.loopback/config.json;
- *                                    later runs re-sync configs and/or rotate
- *                                    credentials. Same verb, every time.
- *   config --show                    print resolved credentials (token redacted)
- *   uninstall [harness...]           unwire each detected (or named) harness
- *   redact [text...]                 redact stdin (or args) -> stdout
- *   data-dir                         print the resolved data dir
- *   list [--format table|json] [filters...]   read stored feedback back (admin token)
+ * User-facing commands:
+ *   auth [--service-url URL] [--token TOK] [--show]
+ *                                    Write or rotate credentials in
+ *                                    ~/.loopback/config.json (the single
+ *                                    source of truth). `--show` inspects
+ *                                    (token redacted). The only command that
+ *                                    accepts --service-url / --token.
+ *
+ *   setup claude-code [--automatic-feedback-detection]
+ *   setup codex
+ *   setup opencode                   Idempotent per-harness installer.
+ *                                    Requires `auth` to have run first
+ *                                    (exits 1 with a hint if not).
+ *
+ *   feedback list [filters...]       Read stored feedback back via the
+ *                                    admin-only GET /feedback. Credentials
+ *                                    come from ~/.loopback/config.json
+ *                                    (no per-command flag override).
+ *
+ *   uninstall <harness> | --all      Unwire a named harness (or every
+ *                                    detected harness with --all).
+ *   redact [text...]                 Redact stdin (or args) -> stdout.
+ *   data-dir                         Print the resolved data dir.
  *   mute <id> | --is-muted <id> | --list | --unmute <id>
- *   scan-correction [text...]        exit 0 (+"hit") if correction-language present, else 1 (+"miss")
- *   record-write --session <id> --file <path>
- *   bump-correction --session <id>   print the new re-instruction count
- *   turn-state --session <id>        print the per-session turn-state JSON
+ *
+ * Internal (hook/plugin) commands:
+ *   internal scan-correction [text...]
+ *   internal record-write --session <id> --file <path>
+ *   internal bump-correction --session <id>
+ *   internal turn-state --session <id>
  *
  * Flag parsing uses node:util parseArgs (stdlib, no dep added) with strict:true
- * so typos error out instead of being silently dropped. Each subcommand declares
- * its options in PARSERS; usage() must stay in sync (drift-tested separately).
+ * so typos error out instead of being silently dropped. Each (sub)command
+ * declares its options in PARSERS.
  *
  * Data dir resolution honors LOOPBACK_DATA_DIR (and the Claude Code / XDG
  * fallbacks); see core/data-dir.js.
@@ -38,34 +51,31 @@ const core = require('../core');
 
 const DATA_DIR = core.resolveDataDir();
 
-// Per-subcommand flag schemas. `list`'s schema lives in cli/list.js next to the
-// code that consumes it (and is exported as LIST_OPTIONS for the drift test).
 const PARSERS = {
-  config: {
-    'service-url':                    { type: 'string' },
-    'token':                          { type: 'string' },
-    'automatic-feedback-detection':   { type: 'boolean' },
-    'show':                           { type: 'boolean' },
-    'all':                            { type: 'boolean' }, // legacy no-op; accepted for back-compat
-  },
-  uninstall: {
+  auth: {
     'service-url': { type: 'string' },
     'token':       { type: 'string' },
-    'all':         { type: 'boolean' }, // legacy no-op; accepted for back-compat
+    'show':        { type: 'boolean' },
+  },
+  setup: {
+    'automatic-feedback-detection': { type: 'boolean' },
+  },
+  uninstall: {
+    'all': { type: 'boolean' },
   },
   mute: {
     'list':     { type: 'boolean' },
     'is-muted': { type: 'string' },
     'unmute':   { type: 'string' },
   },
-  'record-write': {
+  'internal record-write': {
     'session': { type: 'string' },
     'file':    { type: 'string' },
   },
-  'bump-correction': {
+  'internal bump-correction': {
     'session': { type: 'string' },
   },
-  'turn-state': {
+  'internal turn-state': {
     'session': { type: 'string' },
   },
 };
@@ -78,13 +88,13 @@ function readStdin() {
   }
 }
 
-// Wrap parseArgs so a bad flag prints a short, scoped error (with the
-// subcommand name) and exits 2 instead of dumping a Node stack trace.
-function parse(cmd, args) {
+// Wrap parseArgs so a bad flag prints a short, scoped error (with the command
+// label) and exits 2 instead of dumping a Node stack trace.
+function parse(label, args) {
   try {
-    return parseArgs({ args, strict: true, allowPositionals: true, options: PARSERS[cmd] });
+    return parseArgs({ args, strict: true, allowPositionals: true, options: PARSERS[label] });
   } catch (err) {
-    process.stderr.write('loopback ' + cmd + ': ' + (err && err.message ? err.message : err) + '\n');
+    process.stderr.write('loopback ' + label + ': ' + (err && err.message ? err.message : err) + '\n');
     process.exit(2);
   }
 }
@@ -95,154 +105,170 @@ function main() {
   const rest = argv.slice(1);
 
   switch (cmd) {
-    case 'redact': {
-      const input = rest.length > 0 ? rest.join(' ') : readStdin();
-      process.stdout.write(core.redactText(input));
-      return;
-    }
+    case 'auth':       return runAuth(rest);
+    case 'setup':      return runSetup(rest);
+    case 'feedback':   return runFeedback(rest);
+    case 'internal':   return runInternal(rest);
+    case 'uninstall':  return runUninstall(rest);
+    case 'mute':       return runMute(rest);
+    case 'redact':     return runRedact(rest);
+    case 'data-dir':   return runDataDir();
+    default:           return usage();
+  }
+}
 
-    case 'data-dir': {
-      process.stdout.write(DATA_DIR + '\n');
-      return;
-    }
+function runAuth(rest) {
+  const { values } = parse('auth', rest);
+  require('./auth').writeAuth({
+    serviceUrl: values['service-url'],
+    token:      values.token,
+    show:       values.show,
+  });
+}
 
-    case 'mute': {
-      const { values, positionals } = parse('mute', rest);
-      if (values.list) {
-        process.stdout.write(JSON.stringify({ schemaVersion: 1, muted: core.mutes.listMutes(DATA_DIR) }) + '\n');
-        return;
-      }
-      if (values['is-muted']) {
-        const muted = core.mutes.isMuted(DATA_DIR, values['is-muted']);
-        process.stdout.write((muted ? 'muted' : 'not-muted') + '\n');
-        process.exit(muted ? 0 : 1);
-      }
-      if (values.unmute) {
-        core.mutes.unmute(DATA_DIR, values.unmute);
-        process.stdout.write('unmuted ' + values.unmute + '\n');
-        return;
-      }
-      const id = positionals[0];
-      if (!id) return usage('mute <id> | --is-muted <id> | --list | --unmute <id>');
-      core.mutes.mute(DATA_DIR, id);
-      process.stdout.write('muted ' + id + '\n');
-      return;
+function runSetup(rest) {
+  const sub = rest[0];
+  const restAfter = rest.slice(1);
+  const setupMod = require('./setup');
+  if (!sub) {
+    return usage('setup ' + setupMod.HARNESSES.join('|') + ' [--automatic-feedback-detection]');
+  }
+  if (!setupMod.HARNESSES.includes(sub)) {
+    process.stderr.write(
+      `loopback setup: unknown harness "${sub}" (valid: ${setupMod.HARNESSES.join(', ')})\n`
+    );
+    process.exit(2);
+  }
+  const { values } = parse('setup', restAfter);
+  try {
+    setupMod.installHarness(sub, {
+      automaticFeedbackDetection: values['automatic-feedback-detection'],
+    });
+  } catch (e) {
+    if (e && e.code === 'NO_AUTH') {
+      process.stderr.write('loopback setup ' + sub + ': ' + e.message + '\n');
+      process.exit(1);
     }
+    process.stderr.write('loopback setup ' + sub + ': ' + (e && e.message ? e.message : e) + '\n');
+    process.exit(1);
+  }
+}
 
+function runFeedback(rest) {
+  const sub = rest[0];
+  const restAfter = rest.slice(1);
+  if (sub === 'list') {
+    require('./feedback')
+      .runList(restAfter)
+      .catch((err) => {
+        process.stderr.write('loopback feedback list: ' + (err && err.message ? err.message : err) + '\n');
+        process.exit(1);
+      });
+    return;
+  }
+  return usage('feedback list [--format table|json] [--limit N] [--offset N] ' +
+    '[--artifact ID] [--severity low|medium|high] [--confidence low|medium|high] ' +
+    '[--email ADDR] [--from ISO] [--to ISO] [--all]');
+}
+
+function runInternal(rest) {
+  const sub = rest[0];
+  const restAfter = rest.slice(1);
+  switch (sub) {
     case 'scan-correction': {
-      const input = rest.length > 0 ? rest.join(' ') : readStdin();
+      const input = restAfter.length > 0 ? restAfter.join(' ') : readStdin();
       const hit = core.turnState.scanCorrection(input);
       process.stdout.write((hit ? 'hit' : 'miss') + '\n');
       process.exit(hit ? 0 : 1);
     }
-
     case 'record-write': {
-      const { values } = parse('record-write', rest);
+      const { values } = parse('internal record-write', restAfter);
       core.turnState.recordWrite(DATA_DIR, values.session, values.file);
       process.stdout.write('ok\n');
       return;
     }
-
     case 'bump-correction': {
-      const { values } = parse('bump-correction', rest);
+      const { values } = parse('internal bump-correction', restAfter);
       const count = core.turnState.bumpCorrection(DATA_DIR, values.session);
       process.stdout.write(String(count) + '\n');
       return;
     }
-
     case 'turn-state': {
-      const { values } = parse('turn-state', rest);
+      const { values } = parse('internal turn-state', restAfter);
       const state = core.turnState.readState(DATA_DIR, values.session);
       process.stdout.write(JSON.stringify({ state, primed: core.turnState.isPrimed(state) }) + '\n');
       return;
     }
-
-    case 'list': {
-      // Read stored feedback back from the admin-only GET /feedback. Async HTTP
-      // (native fetch); the subcommand owns its own exit codes / error messages
-      // and its own parseArgs call (see cli/list.js).
-      require('./list')
-        .run(rest)
-        .catch((err) => {
-          process.stderr.write('loopback list: ' + (err && err.message ? err.message : err) + '\n');
-          process.exit(1);
-        });
-      return;
-    }
-
-    case 'config': {
-      // Single user-facing entry point for "configure loopback": writes
-      // ~/.loopback/config.json (when --service-url/--token are passed) AND
-      // wires the MCP server + skill + command + hooks into each detected (or
-      // explicitly named) harness. Idempotent — first run installs, later runs
-      // re-sync or rotate credentials. `--show` is the read-only inspector
-      // (prints resolved values with the token redacted).
-      const { values, positionals } = parse('config', rest);
-      if (values.show) {
-        const file = core.config.loadConfig();
-        // Show RESOLVED credentials so an env-only setup is still visible
-        // (the resolver applies the same flag > env > file precedence the
-        // MCP server / `list` will use at submit/read time).
-        const resolved = core.config.resolveCredentials({});
-        const out = {
-          path: core.config.configPath(),
-          schemaVersion: file.schemaVersion || null,
-          serviceUrl: resolved.serviceUrl || null,
-          token: resolved.token ? redactToken(resolved.token) : null,
-        };
-        process.stdout.write(JSON.stringify(out, null, 2) + '\n');
-        return;
-      }
-      const setupMod = require('./setup');
-      setupMod.setup({
-        harnesses: positionals,
-        serviceUrl: values['service-url'],
-        token: values.token,
-        automaticFeedbackDetection: values['automatic-feedback-detection'],
-      });
-      return;
-    }
-
-    case 'uninstall': {
-      const { values, positionals } = parse('uninstall', rest);
-      const setupMod = require('./setup');
-      setupMod.uninstall({
-        harnesses: positionals,
-        serviceUrl: values['service-url'],
-        token: values.token,
-      });
-      return;
-    }
-
     default:
-      return usage();
+      return usage(
+        'internal scan-correction [text...] | ' +
+        'internal record-write --session <id> --file <path> | ' +
+        'internal bump-correction --session <id> | ' +
+        'internal turn-state --session <id>'
+      );
   }
 }
 
-// Redact a token for `loopback config --show`: keep first 4 chars + len marker.
-// Never prints the secret in clear; safe for screen-share / paste.
-function redactToken(t) {
-  const s = String(t || '');
-  if (s.length <= 8) return '*'.repeat(s.length);
-  return s.slice(0, 4) + '*'.repeat(s.length - 4);
+function runUninstall(rest) {
+  const { values, positionals } = parse('uninstall', rest);
+  if (!values.all && positionals.length === 0) {
+    process.stderr.write(
+      'loopback uninstall: pass a harness (claude-code|codex|opencode) or --all\n'
+    );
+    process.exit(2);
+  }
+  const setupMod = require('./setup');
+  try {
+    setupMod.uninstallHarness({ targets: positionals, all: values.all });
+  } catch (e) {
+    process.stderr.write('loopback uninstall: ' + (e && e.message ? e.message : e) + '\n');
+    process.exit(1);
+  }
+}
+
+function runMute(rest) {
+  const { values, positionals } = parse('mute', rest);
+  if (values.list) {
+    process.stdout.write(JSON.stringify({ schemaVersion: 1, muted: core.mutes.listMutes(DATA_DIR) }) + '\n');
+    return;
+  }
+  if (values['is-muted']) {
+    const muted = core.mutes.isMuted(DATA_DIR, values['is-muted']);
+    process.stdout.write((muted ? 'muted' : 'not-muted') + '\n');
+    process.exit(muted ? 0 : 1);
+  }
+  if (values.unmute) {
+    core.mutes.unmute(DATA_DIR, values.unmute);
+    process.stdout.write('unmuted ' + values.unmute + '\n');
+    return;
+  }
+  const id = positionals[0];
+  if (!id) return usage('mute <id> | mute --list | mute --is-muted <id> | mute --unmute <id>');
+  core.mutes.mute(DATA_DIR, id);
+  process.stdout.write('muted ' + id + '\n');
+}
+
+function runRedact(rest) {
+  const input = rest.length > 0 ? rest.join(' ') : readStdin();
+  process.stdout.write(core.redactText(input));
+}
+
+function runDataDir() {
+  process.stdout.write(DATA_DIR + '\n');
 }
 
 function usage(specific) {
   process.stderr.write(
     'loopback ' +
       (specific ||
-        'config [harness...] [--service-url URL] [--token TOK] [--automatic-feedback-detection] | ' +
-        'config --show | ' +
-        'uninstall [harness...] [--service-url URL] [--token TOK] | ' +
-        'list [--format table|json] [--all] [--limit N] [--offset N] [--artifact ID] ' +
-        '[--severity low|medium|high] [--confidence low|medium|high] [--email ADDR] ' +
-        '[--from ISO] [--to ISO] [--service-url URL] [--token TOK] | ' +
+        'auth [--service-url URL] [--token TOK] [--show] | ' +
+        'setup claude-code|codex|opencode [--automatic-feedback-detection] | ' +
+        'feedback list [filters...] | ' +
+        'uninstall <harness> | uninstall --all | ' +
         'redact | data-dir | ' +
         'mute <id> | mute --list | mute --is-muted <id> | mute --unmute <id> | ' +
-        'scan-correction | ' +
-        'record-write --session <id> --file <path> | ' +
-        'bump-correction --session <id> | ' +
-        'turn-state --session <id>') +
+        'internal scan-correction | internal record-write --session <id> --file <path> | ' +
+        'internal bump-correction --session <id> | internal turn-state --session <id>') +
       '\n'
   );
   process.exit(2);

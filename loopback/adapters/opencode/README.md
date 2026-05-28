@@ -3,15 +3,18 @@
 Brings the harness-agnostic loopback feedback loop to [OpenCode](https://opencode.ai).
 The shared core, MCP server (bundle), and CLI are reused unchanged; this directory
 holds the OpenCode-specific glue (the tripwire plugin). **You don't install this by
-hand** — `loopback config` does it for you.
+hand** — `loopback setup opencode` does it for you.
 
 ## Install
 
 ```sh
-npx @guidobuilds/loopback config opencode --service-url <url> --token <tok>
+# 1. Write credentials once (lives in ~/.loopback/config.json @ 0600)
+npx @guidobuilds/loopback auth --service-url <url> --token <tok>
+# 2. Install into OpenCode
+npx @guidobuilds/loopback setup opencode
 ```
 
-That single command:
+`setup opencode`:
 - registers the MCP server in `~/.config/opencode/opencode.json` (`mcp.loopback`,
   pointing at the prebuilt bundle; credentials live in `~/.loopback/config.json`);
 - installs `plugins/loopback.ts` into `~/.config/opencode/plugins/` (baking the

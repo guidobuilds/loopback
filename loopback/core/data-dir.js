@@ -3,10 +3,9 @@
  * data-dir (core) — harness-agnostic resolution of the mutable per-machine
  * state dir (mutes.json, turn-state/).
  *
- * Replaces the old Claude-Code-only fallback (${CLAUDE_PLUGIN_DATA} ->
- * ~/.claude/plugins/data/loopback). Each adapter MAY set LOOPBACK_DATA_DIR to
- * pin the location; otherwise we resolve a sensible per-harness default and fall
- * back to XDG so the same core works under Claude Code, OpenCode, and Codex.
+ * Each adapter MAY set LOOPBACK_DATA_DIR to pin the location; otherwise we
+ * resolve a sensible per-harness default and fall back to XDG so the same core
+ * works under Claude Code, OpenCode, and Codex.
  */
 
 const os = require('os');
@@ -37,7 +36,7 @@ function resolveDataDir() {
   if (cc) return cc;
   if (usableEnv('CLAUDE_PLUGIN_ROOT')) {
     // Running as a Claude Code plugin but the data var was not substituted;
-    // mirror the documented legacy default so existing installs keep their state.
+    // mirror Claude Code's documented per-plugin data path.
     return path.join(os.homedir(), '.claude', 'plugins', 'data', 'loopback');
   }
 
