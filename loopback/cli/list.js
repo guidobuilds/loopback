@@ -6,9 +6,10 @@
  * paginate the corpus, or `--all --format json > feedback.json` to dump the
  * whole thing for feeding to a coding agent.
  *
- * Dependency-free by design (the CLI is intentionally stdlib-only): the HTTP
- * read lives in core/wire.js (native fetch); this module just maps flags ->
- * query, calls fetchRecords, and renders.
+ * Dependency-free by design (the CLI is intentionally stdlib-only): flag
+ * parsing uses node:util parseArgs; the HTTP read lives in core/wire.js
+ * (native fetch); this module just maps flags -> query, calls fetchRecords,
+ * and renders.
  *
  * Auth: GET /feedback requires an ADMIN token. The token + URL are resolved via
  * core.config.resolveCredentials, which honors --token / --service-url, then
@@ -17,38 +18,51 @@
  * via core.wire.endpoint() at call time.
  */
 
+const { parseArgs } = require('node:util');
 const core = require('../core');
 
-// Flags that carry a value (the rest, like --all, are booleans).
-const VALUE_FLAGS = new Set([
-  '--format', '--limit', '--offset', '--artifact', '--severity',
-  '--confidence', '--email', '--from', '--to', '--service-url', '--token',
-]);
+// Flag schema for `loopback list`. Exported so a drift test can assert each
+// declared option also appears in cli/index.js's usage() string.
+const LIST_OPTIONS = {
+  'format':      { type: 'string' },
+  'limit':       { type: 'string' },
+  'offset':      { type: 'string' },
+  'artifact':    { type: 'string' },
+  'severity':    { type: 'string' },
+  'confidence':  { type: 'string' },
+  'email':       { type: 'string' },
+  'from':        { type: 'string' },
+  'to':          { type: 'string' },
+  'service-url': { type: 'string' },
+  'token':       { type: 'string' },
+  'all':         { type: 'boolean' },
+};
 
-// Parse argv into an options object. Mirrors the local parsing style in
-// cli/index.js (no third-party arg parser). Unknown flags are ignored.
-function parseArgs(argv) {
-  const opts = { format: 'table', all: false };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === '--all') { opts.all = true; continue; }
-    if (!VALUE_FLAGS.has(a)) continue;
-    const v = argv[++i];
-    switch (a) {
-      case '--format': opts.format = v; break;
-      case '--limit': opts.limit = v; break;
-      case '--offset': opts.offset = v; break;
-      case '--artifact': opts.artifact = v; break;
-      case '--severity': opts.severity = v; break;
-      case '--confidence': opts.confidence = v; break;
-      case '--email': opts.email = v; break;
-      case '--from': opts.from = v; break;
-      case '--to': opts.to = v; break;
-      case '--service-url': opts.serviceUrl = v; break;
-      case '--token': opts.token = v; break;
-    }
-  }
-  return opts;
+// Parse `loopback list` argv into the options shape buildQuery / run consume.
+// Maps kebab-case flag names to camelCase keys for ergonomic downstream use,
+// and applies the table-as-default-format convention. strict: true makes typos
+// throw an "Unknown option" error instead of being silently dropped.
+function parseListArgs(argv) {
+  const { values } = parseArgs({
+    args: argv,
+    strict: true,
+    allowPositionals: false,
+    options: LIST_OPTIONS,
+  });
+  return {
+    format: values.format || 'table',
+    all: values.all || false,
+    limit: values.limit,
+    offset: values.offset,
+    artifact: values.artifact,
+    severity: values.severity,
+    confidence: values.confidence,
+    email: values.email,
+    from: values.from,
+    to: values.to,
+    serviceUrl: values['service-url'],
+    token: values.token,
+  };
 }
 
 // Build the GET /feedback query object from parsed flags. Only set flags are
@@ -117,7 +131,13 @@ function renderJson(records) {
 }
 
 async function run(argv) {
-  const opts = parseArgs(argv);
+  let opts;
+  try {
+    opts = parseListArgs(argv);
+  } catch (err) {
+    process.stderr.write('loopback list: ' + (err && err.message ? err.message : err) + '\n');
+    process.exit(2);
+  }
 
   if (opts.format !== 'table' && opts.format !== 'json') {
     process.stderr.write(`loopback list: --format must be table or json (got "${opts.format}")\n`);
@@ -161,4 +181,4 @@ async function run(argv) {
   process.stdout.write(out + '\n');
 }
 
-module.exports = { run, parseArgs, buildQuery, renderTable, renderJson, short };
+module.exports = { run, parseListArgs, LIST_OPTIONS, buildQuery, renderTable, renderJson, short };
