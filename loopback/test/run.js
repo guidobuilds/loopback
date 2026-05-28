@@ -72,13 +72,6 @@ section('mutes round-trip', () => {
   assert.strictEqual(core.mutes.isMuted(TMP, 'x'), false);
 });
 
-section('correction scan + turn-state priming', () => {
-  assert.strictEqual(core.turnState.scanCorrection('no, that is wrong'), true);
-  assert.strictEqual(core.turnState.scanCorrection('also add pagination'), false);
-  core.turnState.bumpCorrection(TMP, 's');
-  assert.ok(core.turnState.isPrimed(core.turnState.readState(TMP, 's')));
-});
-
 // core/config.js — single source of truth for LOOPBACK_SERVICE_URL/_TOKEN at
 // ~/.loopback/config.json. Tests run against a throwaway HOME so the real
 // ~/.loopback is never touched. Each test isolates HOME + env to avoid cross-
@@ -227,15 +220,8 @@ section('assembleRecord redacts + stamps harness and validates', () => {
   assert.ok(!('anonUserId' in rec), 'anonUserId must not be stamped');
 });
 
-// `loopback feedback list` read path (async: flag->query mapping, table/json
-// renderers, and fetchRecords against a throwaway HTTP server). Runs before the
-// MCP smoke.
-require('./feedback').run().then(() => {
-  console.log('\nMCP integration smoke:');
-  execFileSync('node', [path.join(__dirname, 'mcp-smoke.js')], { stdio: 'inherit', env: process.env });
+// MCP integration smoke runs after the synchronous core checks above.
+console.log('\nMCP integration smoke:');
+execFileSync('node', [path.join(__dirname, 'mcp-smoke.js')], { stdio: 'inherit', env: process.env });
 
-  console.log('\nALL CLIENT TESTS PASSED');
-}).catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+console.log('\nALL CLIENT TESTS PASSED');

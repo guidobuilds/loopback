@@ -1,115 +1,122 @@
-# loopback
+# loopback (MCP server + core)
 
-Closes the feedback loop for AI coding agents. When a shipped skill or agent
-produces a defect the user has to correct locally, loopback detects the likely
-defect, identifies which skill/agent produced the corrected output, synthesizes a
-generalizable, de-identified lesson, asks for per-send consent, and submits the
-record to the central ingest service.
+This is the **`loopback` npm package** — the shared core, the MCP server, the
+portable `feedback-detector` skill, and the `/harness-feedback` command that
+together drive the loopback feedback loop.
 
-loopback is **harness-agnostic**: a shared core + an MCP server + a small CLI
-(`loopback auth` + `loopback setup <harness>`). The **MCP server is the universal
-interface** — the same portable `feedback-detector` skill drives the whole flow
-by calling its tools, so it works identically under Claude Code, OpenCode, and
-Codex.
+loopback closes the feedback loop for AI coding agents. When a shipped skill or
+agent produces a defect the user has to correct locally, the detector skill
+judges defect vs. iteration, synthesizes a generalizable, de-identified lesson,
+asks the user for per-send consent, and (on `[S]end`) submits the record to the
+central ingest service via the MCP `submit_feedback` tool.
 
-This directory is the **npm package** (`@guidobuilds/loopback`). There is no
-Claude Code plugin / marketplace: `loopback setup <harness>` writes each
-harness's config directly. See the [root README](../README.md) for the project
-overview + service.
+loopback is **harness-agnostic**: the same MCP server + the same portable
+`feedback-detector` skill drive the flow under Claude Code, OpenCode, and Codex.
+The MCP server is the universal interface — every harness calls the same six
+tools through the same wire contract.
 
 ## Install
 
-```sh
-# 1. Write credentials once (lives in ~/.loopback/config.json @ 0600)
-npx @guidobuilds/loopback auth --service-url <url> --token <tok>
+This package is **not installed directly** by developers. Use the
+[`@loopback/setup`](../setup/) installer:
 
-# 2. Install into each harness you use (idempotent; safe to re-run)
-npx @guidobuilds/loopback setup claude-code --automatic-feedback-detection
-npx @guidobuilds/loopback setup opencode
-npx @guidobuilds/loopback setup codex
+```bash
+# Interactive: prompts for the agent + the service URL + the token.
+npx @loopback/setup
+
+# Non-interactive: pick the agent, pass credentials, skip prompts.
+npx @loopback/setup claude-code --service-url <url> --token <tok> --yes
 ```
 
-`auth` is the single source of credentials; `setup <harness>` wires the MCP
-server + detector skill + `/harness-feedback` command (+ optional hooks on
-Claude Code via `--automatic-feedback-detection`). Restart your agent
-afterward. Remove with `npx @guidobuilds/loopback uninstall <harness>` or
-`uninstall --all`.
+The installer extracts the bundled MCP server to `~/.loopback/mcp/`, writes
+credentials to `~/.loopback/config.json` (mode `0600`), registers the MCP server
+with the chosen agent, and copies the detector skill and command into the
+agent's user directories. See [`../docs/install.md`](../docs/install.md) for the
+full reference (flags, branches, reinstall detection, credential rotation,
+uninstall).
 
-You need the central service running and a per-user token (issued by an admin
-via `service/issue_token.py`).
+You also need the central [service](../service/) running and a per-user token
+(minted by an admin via `service/issue_token.py`).
+
+## What's in this package
+
+```
+loopback/                              # npm package `loopback`
+├── core/                              # shared lib: data-dir, redact, mutes, session-state, wire
+│   └── feedback-record.schema.json    # single source-of-truth wire contract
+├── mcp/
+│   ├── index.js                       # MCP server source (six tools, stdio transport)
+│   └── server.bundle.js               # prebuilt, dependency-free bundle (what `@loopback/setup` ships)
+├── skills/feedback-detector/          # one portable detector skill (copied into each harness)
+└── commands/harness-feedback.md       # slash command (copied into each harness)
+```
+
+The published package is **self-contained**: the MCP server is prebuilt into a
+dependency-free bundle (`mcp/server.bundle.js`, via `npm run build` / bun), so
+the install pulls **no runtime dependencies** (the four deps are
+devDependencies, only needed to rebuild the bundle or run the tests).
+
+## MCP tools (the developer-facing API)
+
+The MCP server exposes six tools. These are the **recurring API** developers
+interact with through their harness — there is no CLI equivalent.
+
+| Tool | Purpose |
+|------|---------|
+| `submit_feedback` | Terminal POST after the user chose `[S]end` at the consent gate. Re-redacts, validates, and POSTs to the service. |
+| `redact_preview` | Show the user the exact byte-for-byte text that would be sent (the consent gate uses this). |
+| `is_muted` | Has the user muted this artifact on this machine? |
+| `mute_artifact` | Mute an artifact on this machine (idempotent; backs `[N]ever for this skill`). |
+| `record_signal` | Record a Tier-1 signal (correction / revert / reinstruct) observed this session. |
+| `get_session_state` | Return the in-session debounce state + the local mute list. |
+
+See [`../docs/mcp.md`](../docs/mcp.md) for inputs / outputs / registration.
 
 ## Credentials
 
 Credentials live in a single file: `~/.loopback/config.json` (mode `0600`).
-**Only `loopback auth` writes to it.** Every other command (`feedback list`,
-`setup <harness>`, the MCP server) reads from it — no command accepts
-`--service-url` / `--token` overrides. Authorization (admin vs user, revoked
-tokens) is enforced server-side.
+Only `@loopback/setup` writes to it. The MCP server reads from it at submit
+time. `LOOPBACK_SERVICE_URL` / `LOOPBACK_TOKEN` env vars act as per-session
+overrides (useful for CI / scripts).
 
-```sh
-loopback auth --service-url <url> --token <tok>  # first install OR rotate both
-loopback auth --token NEW_TOKEN                  # rotate just the bearer token
-loopback auth --service-url https://new/         # change just the service URL
-loopback auth --show                             # print resolved values (token redacted)
+Rotate by re-running the installer and answering `n` to the
+"Use these credentials?" prompt:
+
+```bash
+npx @loopback/setup
 ```
 
-The service URL is the base; CLI and MCP derive endpoint paths (`/feedback`,
-etc.) automatically.
+or override directly with flags:
 
-**Resolution order** (same for every code path):
-
-1. `~/.loopback/config.json` — the single source of truth
-2. `LOOPBACK_TOKEN` / `LOOPBACK_SERVICE_URL` env vars — per-session override
-   (useful for CI/scripts; not used by the CLI's day-to-day flow)
-3. nothing → CLI exits 1 with a "run `loopback auth …`" hint; MCP server
-   returns an error
-
-## Review feedback
-
-```sh
-loopback feedback list --format json --all > feedback.json   # whole corpus (needs an ADMIN token)
-loopback feedback list --severity high --artifact prd-writer # filtered table
+```bash
+npx @loopback/setup --service-url <new> --token <new>
 ```
 
-`feedback list` reads its credentials from `~/.loopback/config.json` — rotate
-to your admin token first (`loopback auth --token <admin>`).
-
-## Layout
-
-```
-loopback/                       # npm package @guidobuilds/loopback
-├── core/                       # shared lib: data-dir, redact, mutes, turn/session-state, wire
-│   └── feedback-record.schema.json   # single source-of-truth wire contract
-├── mcp/index.js · server.bundle.js   # MCP server source + prebuilt bundle (6 tools)
-├── cli/index.js · auth.js · setup.js · feedback.js   # CLI router + verb modules
-├── skills/feedback-detector/   # one portable detector skill (copied into each harness)
-├── commands/harness-feedback.md
-├── hooks/on-*.js               # Claude Code tripwires
-└── adapters/opencode/plugins/loopback.ts   # OpenCode tripwire plugin
-```
-
-The published package is **self-contained**: the MCP server is prebuilt into a
-dependency-free bundle (`mcp/server.bundle.js`, via `npm run build` / bun), so the
-install pulls **no runtime dependencies** (the four deps are devDependencies).
+The service URL is the **base** (no `/feedback`); MCP derives endpoint paths
+automatically. Authorization (admin vs user, revoked tokens) is enforced
+server-side.
 
 ## Tests
 
 ```sh
-npm run build                       # rebuild mcp/server.bundle.js after editing core/ or mcp/
-npm test                            # core+MCP suite + installer suite
-bun test/opencode-plugin-smoke.ts   # OpenCode plugin -> CLI -> core (needs bun)
+npm run build       # rebuild mcp/server.bundle.js after editing core/ or mcp/
+npm test            # core + MCP suite + installer-side smoke
 ```
 
 ## Documentation
 
-- **CLI reference** (all commands + `auth`/`setup`/`feedback list` flags, data
-  dir, files setup writes) → [`../docs/cli.md`](../docs/cli.md)
+- **Installer** (flags, branches, reinstall, uninstall, credential rotation) →
+  [`../docs/install.md`](../docs/install.md)
 - **MCP reference** (registration + the six tools) →
   [`../docs/mcp.md`](../docs/mcp.md)
+- **Admin workflow** (run service, mint tokens, query feedback via curl) →
+  [`../docs/admin.md`](../docs/admin.md)
+- **Service reference** (endpoints, auth, persistence) →
+  [`../docs/service.md`](../docs/service.md)
 - **Environment variables** →
   [`../docs/environment-variables.md`](../docs/environment-variables.md)
-- **Run it end to end** → [`../DEVELOPMENT.md`](../DEVELOPMENT.md) · **Docs index**
-  → [`../docs/README.md`](../docs/README.md)
+- **Run it end to end** → [`../DEVELOPMENT.md`](../DEVELOPMENT.md)
+- **Docs index** → [`../docs/README.md`](../docs/README.md)
 
 ## Privacy posture
 

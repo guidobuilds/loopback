@@ -5,30 +5,35 @@ under Claude Code, OpenCode, and Codex. The portable `feedback-detector` skill /
 `/harness-feedback` command drive the whole flow by calling these tools, so the
 same `SKILL.md` needs no harness-specific shell-outs.
 
+These six MCP tools are the **developer-facing API of recurring use**. There is
+**no CLI equivalent** — interactions like muting an artifact or previewing the
+redacted excerpt happen via these tools through the harness.
+
 - **Transport:** stdio (one server process per session).
 - **Source:** `loopback/mcp/index.js`, bundled to
   `loopback/mcp/server.bundle.js` via `npm run build` (uses bun). The bundle is
-  self-contained and dependency-free; it is what ships in the npm package.
-- **Command:** `node <absolute-path>/mcp/server.bundle.js`.
+  self-contained and dependency-free; it is what ships in the npm package and
+  what `@loopback/setup` extracts to `~/.loopback/mcp/server.bundle.js`.
+- **Command:** `node <abs>/server.bundle.js`.
 
 Nothing here makes a defect-vs-iteration judgment — that is the skill's job. The
 server only validates, redacts, transmits, and tracks state the user approved.
 
 ## Registration
 
-`loopback setup <harness>` registers the server automatically per harness (see
-[cli.md](cli.md#files-setup-harness-writes-per-harness)). The shapes it writes:
+`@loopback/setup` registers the server automatically per harness (see
+[install.md](install.md#what-gets-written-per-agent)). The shapes it writes:
 
 **Claude Code** (`claude mcp add-json loopback … -s user`):
 
 ```json
-{ "command": "node", "args": ["<abs>/mcp/server.bundle.js"] }
+{ "command": "node", "args": ["<abs>/server.bundle.js"] }
 ```
 
 **OpenCode** (`mcp.loopback` in `opencode.json(c)`):
 
 ```json
-{ "type": "local", "command": ["node", "<abs>/mcp/server.bundle.js"],
+{ "type": "local", "command": ["node", "<abs>/server.bundle.js"],
   "enabled": true }
 ```
 
@@ -37,19 +42,18 @@ server only validates, redacts, transmits, and tracks state the user approved.
 ```toml
 [mcp_servers.loopback]
 command = "node"
-args = ["<abs>/mcp/server.bundle.js"]
+args = ["<abs>/server.bundle.js"]
 ```
 
-Credentials live in `~/.loopback/config.json` (single source of truth) and
-are written exclusively by `loopback auth`. `loopback setup <harness>` never
-writes per-harness `env`/`environment` blocks for `LOOPBACK_*`. Any env keys
-the user added by hand under the loopback entry are preserved across re-runs
-(OpenCode / Codex).
+Credentials live in `~/.loopback/config.json` (single source of truth) and are
+written exclusively by `@loopback/setup`. The installer never writes per-harness
+`env`/`environment` blocks for `LOOPBACK_*`. Any env keys the user added by
+hand under the loopback entry are preserved across re-runs (OpenCode / Codex).
 
 ## Environment
 
 The server reads credentials from `~/.loopback/config.json` (written by
-`loopback auth`). Environment variables `LOOPBACK_SERVICE_URL` /
+`@loopback/setup`). Environment variables `LOOPBACK_SERVICE_URL` /
 `LOOPBACK_TOKEN` still act as a per-session override when set. The
 service URL is the **base** (no `/feedback`); endpoint paths are derived per
 call. The originating harness (`client.harness`) is **auto-detected at
@@ -59,7 +63,9 @@ harness. See [environment-variables.md](environment-variables.md).
 
 ## Tools
 
-Six tools, all general:
+Six tools, all general. They are the developer-facing API of recurring use —
+the harness's skill/command layer drives them, the developer never invokes
+them by hand.
 
 ### `submit_feedback`
 
@@ -139,5 +145,6 @@ Output: `{"status":"ok","recorded":<entry>,"state":<session state>}`.
 
 ---
 
-See also: [cli.md](cli.md) · [environment-variables.md](environment-variables.md) ·
-[service.md](service.md) · [`../DEVELOPMENT.md`](../DEVELOPMENT.md).
+See also: [install.md](install.md) · [admin.md](admin.md) ·
+[environment-variables.md](environment-variables.md) · [service.md](service.md) ·
+[`../DEVELOPMENT.md`](../DEVELOPMENT.md).

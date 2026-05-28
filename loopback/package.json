@@ -1,19 +1,13 @@
 {
   "name": "@guidobuilds/loopback",
   "version": "0.0.1",
-  "description": "Harness-agnostic feedback loop for AI coding agents (Claude Code, OpenCode, Codex). `loopback auth` writes credentials once; `loopback setup <harness>` wires the MCP server + skill + command (+ optional hooks) per harness — no marketplace, no manual config.",
+  "description": "Harness-agnostic feedback loop for AI coding agents (Claude Code, OpenCode, Codex): the shared core, the MCP server (six tools), and the portable `feedback-detector` skill. Installed via `npx @loopback/setup`.",
   "type": "commonjs",
-  "bin": {
-    "loopback": "cli/index.js"
-  },
   "files": [
     "core",
     "mcp/server.bundle.js",
-    "cli",
     "skills",
     "commands",
-    "hooks",
-    "adapters/opencode/plugins",
     "README.md"
   ],
   "engines": {
@@ -21,8 +15,7 @@
   },
   "scripts": {
     "build": "bun build mcp/index.js --target=node --format=cjs --outfile=mcp/server.bundle.js",
-    "test": "node test/run.js && node test/setup-smoke.js",
-    "test:opencode": "bun test/opencode-plugin-smoke.ts",
+    "test": "node test/run.js",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

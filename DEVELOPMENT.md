@@ -5,12 +5,15 @@ the central service in Docker, mint per-user tokens, build + install the client
 into your harness, exercise the loop, and read the stored record back.
 
 > For a plain install (not development), end users run
-> `npx @guidobuilds/loopback auth` then `npx @guidobuilds/loopback setup <harness>` — see the [README](README.md). For deep reference (endpoints, CLI flags, MCP tools, env vars, troubleshooting) see [`docs/`](docs/README.md).
+> `npx @loopback/setup` — see the [README](README.md). For deep reference
+> (endpoints, MCP tools, installer flags, admin queries, env vars,
+> troubleshooting) see [`docs/`](docs/README.md).
 
 ## Prerequisites
 
 - **Docker** + the `docker compose` plugin (`docker info` must succeed)
-- **Node.js ≥18** + **[Bun](https://bun.sh)** (to build the MCP bundle / run the CLI)
+- **Node.js ≥18** + **[Bun](https://bun.sh)** (to build the MCP bundle)
+- **pnpm** (to build the installer; `npm` also works)
 - A harness CLI (e.g. `claude`)
 - `curl`, `openssl`, `git`
 
@@ -27,22 +30,37 @@ docker compose exec loopback-svc python3 issue_token.py --email dev@example.com
 docker compose exec loopback-svc python3 issue_token.py --email you@example.com --admin
 ```
 
-Copy each printed `lpbk_…` token (shown once). Auth is per-user, hashed at rest — there is no shared server token. The DB persists in the `feedback-data` volume.
+Copy each printed `lpbk_…` token (shown once). Auth is per-user, hashed at
+rest — there is no shared server token. The DB persists in the
+`feedback-data` volume.
 
-## 2. Build + install the CLI from the checkout
+## 2. Build the MCP server bundle + the installer
 
 ```bash
+# MCP server bundle (consumed by the installer's prebuild step).
 cd ../loopback && npm install && npm run build
-# Step 2a: write credentials once (lives in ~/.loopback/config.json @ 0600)
-node cli/index.js auth \
-  --service-url http://localhost:8080 --token "<developer lpbk_… token>"
-# Step 2b: install into the harness you want to test against
-node cli/index.js setup claude-code --automatic-feedback-detection
+
+# Installer (pulls the freshly-built bundle into setup/mcp-bundle/ as a prebuild step).
+cd ../setup && pnpm install && pnpm build
 ```
 
-The client runs on the host and the container publishes `8080` on `localhost`, so plain `localhost` works (no `host.docker.internal`). `auth` is the single source of credentials; `setup claude-code` registers the MCP server + detector skill + `/harness-feedback` command (+ hooks via the opt-in flag). Restart the harness. Confirm with `claude mcp list` / `claude mcp get loopback`.
+## 3. Install into your harness from the local checkout
 
-## 3. Verify the loop
+```bash
+# Run the just-built installer directly (no npx round-trip):
+HOME=$HOME node setup/dist/index.js claude-code \
+  --service-url http://localhost:8080 \
+  --token "<developer lpbk_… token>" \
+  --yes
+```
+
+The installer writes `~/.loopback/config.json` (mode `0600`), extracts the MCP
+bundle to `~/.loopback/mcp/server.bundle.js`, registers the MCP server with
+the chosen harness, and copies the detector skill + `/harness-feedback`
+command. Restart the harness. Confirm with `claude mcp list` /
+`claude mcp get loopback`.
+
+## 4. Verify the loop
 
 In a running session, trigger feedback manually, then choose `[S]end`:
 
@@ -50,27 +68,32 @@ In a running session, trigger feedback manually, then choose `[S]end`:
 /harness-feedback prd-writer the PRD used a freeform structure instead of the Problem/Solution/Metrics template
 ```
 
-Read it back with the **admin** token (rotate creds first; `feedback list` reads from `~/.loopback/config.json`):
+Read it back with the **admin** token (use `curl`; there is no CLI for
+reading feedback):
 
 ```bash
-node cli/index.js feedback list
+curl -H "Authorization: Bearer <admin lpbk_… token>" http://localhost:8080/feedback | jq '.'
 ```
 
-You should see your `prd-writer` record. The store is append-only — send again and the corpus gains another record. For the full containerized end-to-end, run `bash service/e2e/run-e2e.sh`.
+You should see your `prd-writer` record. The store is append-only — send
+again and the corpus gains another record. For the full containerized
+end-to-end, run `bash service/e2e/run-e2e.sh`. See [`docs/admin.md`](docs/admin.md)
+for the full set of filters and examples.
 
 ## Already have Loopback installed? (reconfigure)
 
-`setup <harness>` is **idempotent** and preserves your existing settings — it
-is always safe to re-run.
+The installer is **idempotent** and preserves your existing settings — it is
+always safe to re-run.
 
-- **Re-run `loopback setup <harness>`** only when something it baked in
-  changed: after `npm run build` / moving the checkout (it stores the
-  **absolute** path to `mcp/server.bundle.js`).
-- **Rotate credentials** with `loopback auth --token … [--service-url …]`. No
-  `setup <harness>` re-run needed — the MCP server picks up the new values
-  from `~/.loopback/config.json` on its next launch.
-- `node cli/index.js uninstall <harness>` (or `uninstall --all`) reverses the
-  install.
+- **Re-run `npx @loopback/setup <agent>`** when you want to refresh the
+  install (e.g. after rebuilding the MCP bundle, or to point at a new
+  service URL).
+- **Rotate credentials** by re-running the installer and answering `n` to
+  "Use these credentials?", or directly with
+  `npx @loopback/setup --token <new> --service-url <new>`. The MCP server
+  picks up the new values from `~/.loopback/config.json` on its next launch.
+- **Uninstall** with `npx @loopback/setup --remove [agent]` (add `--all` to
+  also delete `~/.loopback/`).
 
 ## Teardown
 

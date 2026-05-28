@@ -1,7 +1,7 @@
 'use strict';
 /*
  * data-dir (core) — harness-agnostic resolution of the mutable per-machine
- * state dir (mutes.json, turn-state/).
+ * state dir (mutes.json).
  *
  * Each adapter MAY set LOOPBACK_DATA_DIR to pin the location; otherwise we
  * resolve a sensible per-harness default and fall back to XDG so the same core

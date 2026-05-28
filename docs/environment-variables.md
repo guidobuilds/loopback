@@ -1,9 +1,9 @@
 # Environment variables
 
 loopback uses no `.env` files. Every variable below is read directly from the
-process environment. Client credentials are normally persisted by `loopback
-auth` to `~/.loopback/config.json` (so you rarely export them by hand); env
-vars act as per-session overrides when set.
+process environment. Client credentials are normally persisted by
+`@loopback/setup` to `~/.loopback/config.json` (so you rarely export them by
+hand); env vars act as per-session overrides when set.
 
 ## Service
 
@@ -14,15 +14,14 @@ vars act as per-session overrides when set.
 There is **no server token env var** — auth is per-user hashed tokens stored in
 the DB. See [service.md](service.md#auth-model-per-user-hashed-tokens).
 
-## Client (MCP + CLI)
+## Client (MCP)
 
 | Name | Required | Default | Controls | Read by |
 |------|----------|---------|----------|---------|
-| `LOOPBACK_SERVICE_URL` | only as env override | persisted by `loopback auth` | The **base** service URL (no `/feedback`). Endpoint paths (`/feedback`, etc.) are derived per call by `core.wire.endpoint()`. | MCP `submit_feedback`, `loopback feedback list`, `loopback setup` |
-| `LOOPBACK_TOKEN` | only as env override | persisted by `loopback auth` | Per-user bearer token (admin token required for `feedback list` / `GET /feedback`). | MCP `submit_feedback`, `loopback feedback list`, `loopback setup` |
+| `LOOPBACK_SERVICE_URL` | only as env override | persisted by `@loopback/setup` | The **base** service URL (no `/feedback`). Endpoint paths (`/feedback`, etc.) are derived per call by `core.wire.endpoint()`. | MCP `submit_feedback` |
+| `LOOPBACK_TOKEN` | only as env override | persisted by `@loopback/setup` | Per-user bearer token (admin token required to read `GET /feedback`). | MCP `submit_feedback` |
 | `LOOPBACK_DATA_DIR` | no | resolved (see below) | Explicit override for the per-machine state dir. | `loopback/core/data-dir.js` |
 | `LOOPBACK_HARNESS` | no | auto-detected | Override the detected harness label (`client.harness`). Undocumented escape hatch; never written into config. | `loopback/core/data-dir.js` |
-| `LOOPBACK_CLI` | no | absolute path baked by `setup` | Absolute path to `loopback/cli/index.js` used by the OpenCode tripwire plugin. | `adapters/opencode/plugins/loopback.ts` |
 
 An env value that is empty or an unsubstituted template (contains `${`) is
 treated as **unset**.
@@ -31,7 +30,10 @@ treated as **unset**.
 
 | Name | Required | Default | Controls | Read by |
 |------|----------|---------|----------|---------|
-| `AI_AGENT` | no | — | Primary harness-detection input (format `<harness>_<version>_<mode>`, e.g. `claude-code_2-1-150_agent`); also yields the harness version. | `loopback/core/data-dir.js` |
+| `AI_AGENT` | no | — | Primary harness-detection input (format `<harness>_<version>_<mode>`, e.g. `claude-code_2-1-150_agent`); also yields the harness version. Also used by `@loopback/setup` to suppress the ASCII logo when run inside an agent. | `loopback/core/data-dir.js`, `setup/src/detect-agent.ts` |
+| `CLAUDECODE` / `CLAUDE_CODE` | no | — | Claude Code marker. Harness-detection fallback when `AI_AGENT` is absent; also suppresses the installer logo. | `loopback/core/data-dir.js`, `setup/src/detect-agent.ts` |
+| `OPENCODE` / `OPENCODE_HARNESS` | no | — | OpenCode marker. Used by `@loopback/setup` to suppress the installer logo when run inside OpenCode. | `setup/src/detect-agent.ts` |
+| `CODEX` / `CODEX_SANDBOX` / `CODEX_HOME` | no | — | Codex markers. Used for harness detection (`CODEX_SANDBOX` / `CODEX_HOME`) and to suppress the installer logo (`CODEX`). | `loopback/core/data-dir.js`, `setup/src/detect-agent.ts` |
 | `USER` | no | — | Username added to the redaction pattern set (so the operator's username is scrubbed from excerpts). | `loopback/core/redact.js` |
 
 Harness-specific fallbacks are also consulted when `AI_AGENT` is absent:
@@ -68,4 +70,5 @@ First match wins (`client.harness`; `loopback/core/data-dir.js`):
 
 ---
 
-See also: [service.md](service.md) · [cli.md](cli.md) · [mcp.md](mcp.md).
+See also: [service.md](service.md) · [install.md](install.md) ·
+[admin.md](admin.md) · [mcp.md](mcp.md).
