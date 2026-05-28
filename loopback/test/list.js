@@ -34,17 +34,17 @@ async function run() {
   console.log('\nloopback list checks:');
 
   await section('parseArgs reads format/flags and --all', () => {
-    const o = list.parseArgs(['--format', 'json', '--all', '--artifact', 'prd-writer', '--severity', 'high']);
+    const o = list.parseListArgs(['--format', 'json', '--all', '--artifact', 'prd-writer', '--severity', 'high']);
     assert.strictEqual(o.format, 'json');
     assert.strictEqual(o.all, true);
     assert.strictEqual(o.artifact, 'prd-writer');
     assert.strictEqual(o.severity, 'high');
     // default format is table when --format is absent
-    assert.strictEqual(list.parseArgs([]).format, 'table');
+    assert.strictEqual(list.parseListArgs([]).format, 'table');
   });
 
   await section('buildQuery maps flags -> query; --all => limit=0', () => {
-    const q = list.buildQuery(list.parseArgs([
+    const q = list.buildQuery(list.parseListArgs([
       '--all', '--offset', '5', '--artifact', 'prd-writer',
       '--severity', 'high', '--confidence', 'low', '--email', 'a@b.co',
       '--from', '2026-05-01T00:00:00Z', '--to', '2026-05-31T00:00:00Z',
@@ -60,9 +60,9 @@ async function run() {
       received_to: '2026-05-31T00:00:00Z',
     });
     // --all wins over --limit; unset flags are omitted entirely.
-    const q2 = list.buildQuery(list.parseArgs(['--limit', '7']));
+    const q2 = list.buildQuery(list.parseListArgs(['--limit', '7']));
     assert.deepStrictEqual(q2, { limit: '7' });
-    assert.deepStrictEqual(list.buildQuery(list.parseArgs(['--all', '--limit', '7'])), { limit: 0 });
+    assert.deepStrictEqual(list.buildQuery(list.parseListArgs(['--all', '--limit', '7'])), { limit: 0 });
   });
 
   await section('table renderer aligns columns + footer count; json pretty-prints', () => {
