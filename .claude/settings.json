@@ -1,0 +1,31 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "statusMessage": "Checking for generated-artifact edits",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in *server.bundle.js|*/setup/dist/*|*/setup/mcp-bundle/*) jq -n '{hookSpecificOutput:{hookEventName:\"PreToolUse\",permissionDecision:\"deny\",permissionDecisionReason:\"Generated artifact. Edit the source under loopback/mcp (or loopback/skills, loopback/commands) and rebuild — do not edit server.bundle.js, setup/dist/, or setup/mcp-bundle/ directly.\"}}';; esac"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in *.bundle.js) ;; */loopback/mcp/*|*/loopback/core/*) jq -n '{hookSpecificOutput:{hookEventName:\"PostToolUse\",additionalContext:\"Source under loopback/mcp or loopback/core changed — loopback/mcp/server.bundle.js (and its copy in setup/mcp-bundle) is now stale. Rebuild: (cd loopback && npm run build) then (cd setup && npm run build).\"}}';; esac || true"
+          },
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in *feedback-record.schema.json) d=\"$CLAUDE_PROJECT_DIR\"; err=$(node -e 'const Ajv=require(process.argv[2]+\"/loopback/node_modules/ajv/dist/2020\");const af=require(process.argv[2]+\"/loopback/node_modules/ajv-formats\");const add=af.default||af;const fs=require(\"fs\");try{const a=new Ajv({allErrors:true,strict:false});add(a);a.compile(JSON.parse(fs.readFileSync(process.argv[1])));}catch(e){console.error(e.message);process.exit(1)}' \"$f\" \"$d\" 2>&1) || msg=\"schema is invalid: $err\"; diff -q \"$d/service/feedback-record.schema.json\" \"$d/loopback/core/feedback-record.schema.json\" >/dev/null 2>&1 || msg=\"${msg:+$msg; }the two schema copies (service vs loopback/core) have drifted — re-sync them.\"; [ -n \"$msg\" ] && jq -n --arg m \"$msg\" '{hookSpecificOutput:{hookEventName:\"PostToolUse\",additionalContext:(\"⚠ \"+$m)}}';; esac || true"
+          }
+        ]
+      }
+    ]
+  }
+}
