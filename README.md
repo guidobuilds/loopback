@@ -7,108 +7,107 @@
 
 ## The problem
 
-Organizations are increasingly building their own harness — custom **skills, agents, and
-commands** for their coding agents. But improving them depends on users bothering to report
-when something behaves wrong, or even fixing the skill themselves. Most of that signal is
-lost: the user just corrects the output locally and moves on.
+Organizations are increasingly building their own harness — custom **skills, agents, and AGENTS.md** for their coding agents. But improving them depends on users bothering to report when something behaves wrong, or even fixing the skill themselves. Most of that signal is lost: the user just corrects the output locally and moves on.
 
-**loopback automates the collection of that feedback and removes the friction of sharing it.**
-When a shipped skill or agent produces a defect a user has to correct by hand, loopback turns
-that correction into a de-identified, generalizable lesson and — with one tap of consent —
-sends it to a central store the skill's authors can review.
+**loopback automates the collection of that feedback and removes the friction of sharing it.** When a shipped skill or agent produces a defect a user has to correct by hand, loopback turns that correction into a de-identified, generalizable lesson and — with one tap of consent — sends it to a central store the skill's authors can review.
 
-It is **harness-agnostic** (Claude Code, OpenCode, Codex) and **privacy-first**: nothing leaves
-the machine without explicit per-send confirmation, and no raw content is stored — only a
-synthesized summary and a redacted excerpt.
+It is **harness-agnostic** (Claude Code, OpenCode, Codex) and **privacy-first**: nothing leaves the machine without explicit per-send confirmation, and no raw content is stored — only a synthesized summary and a redacted excerpt.
 
-> ⚠️ Beta (0.0.1). APIs and the wire contract may change before 1.0.
+> ⚠️ Beta (0.0.1). APIs and the wire contract may change.
 
 ## How it works
 
-1. Deterministic tripwires notice when a user corrects skill/agent output.
-2. A detector skill judges **defect vs. iteration** (precision-biased) and synthesizes a generalizable lesson.
+1. The user corrects a skill / agent output.
+2. A detector skill — driven by the harness through the loopback MCP server — judges **defect vs. iteration** (precision-biased) and synthesizes a generalizable lesson.
 3. It shows a consent gate with the exact redacted text that would be sent: **[S]end · [E]dit · [D]ecline · [N]ever**.
 4. On `[S]end`, the MCP tool re-redacts, validates, and POSTs to the central service.
 5. The append-only service stores every de-identified record; authors review them via a token-guarded read-back.
 
-## Quickstart
+## Components
 
-### 1. Run the central service + mint a token
+loopback ships three pieces:
 
-```bash
-git clone https://github.com/guidobuilds/loopback.git
-cd loopback/service
-docker compose up --build -d                 # append-only store; persists to a volume
-docker compose exec loopback-svc python3 issue_token.py --email you@example.com --admin  # reads feedback back
-docker compose exec loopback-svc python3 issue_token.py --email dev@example.com           # client bearer
-```
+| Component | What it is | Where it lives |
+|-----------|------------|----------------|
+| **Installer** (`@loopback/setup`) | Ephemeral one-shot `npx` installer. Wires the MCP server, skill, and `/harness-feedback` command into your harness. No persistent CLI is left behind. | npm package `@loopback/setup`, source in [`setup/`](setup/) |
+| **MCP server** (bundled) | The universal interface to loopback (six tools: `submit_feedback`, `redact_preview`, `mute_artifact`, `is_muted`, `record_signal`, `get_session_state`). Same `feedback-detector` skill drives it under every harness. | npm package `loopback`, source in [`loopback/`](loopback/) |
+| **Service** (FastAPI) | Append-only ingest + token-guarded read-back. Per-user hashed-token bearer auth, SQLite + Alembic. | [`service/`](service/) |
 
-Auth is per-user, hashed at rest — no shared server token. (No Docker? Run it with `uvicorn` — see
-[DEVELOPMENT.md](DEVELOPMENT.md).)
+## Quick start (developer)
 
-### 2. Install loopback into your agent — one command
+Install loopback into your harness with one command:
 
 ```bash
-npx @guidobuilds/loopback config \
-  --service-url http://localhost:8080 \
-  --token "<the developer token from step 1>"
+# Interactive wizard (recommended) — prompts for agent + service URL + token:
+npx @loopback/setup
+
+# Or non-interactive with overrides:
+npx @loopback/setup claude-code --service-url <url> --token <token> --yes
 ```
 
-No marketplace, no manual config. It **auto-detects** your installed agents (or name them, e.g.
-`… config claude-code opencode`), wires the MCP server + detector skill + `/harness-feedback`
-command (+ hooks on Claude Code), and is safe to re-run. Restart your agent afterward.
-Remove with `npx @guidobuilds/loopback uninstall`.
+Then open your agent and try `/harness-feedback` — or just correct a skill's output and let the detector raise the consent gate.
 
-### 3. Use it
-
-Correct a skill/agent and accept the consent gate — or trigger it manually:
-
-```
-/harness-feedback prd-writer the PRD used a freeform structure instead of the template
-```
-
-Read the stored records back (admin token):
+To uninstall:
 
 ```bash
-curl -s -H "Authorization: Bearer <your admin token>" localhost:8080/feedback
+npx @loopback/setup --remove                # interactive picker
+npx @loopback/setup --remove claude-code    # specific agent
+npx @loopback/setup --remove --all          # also wipe ~/.loopback/ (credentials + bundled MCP server)
 ```
+
+See [`docs/install.md`](docs/install.md) for the full installer reference.
+
+## Quick start (admin / harness owner)
+
+You need three things up: the central service, an admin token, and an HTTP client (`curl` works fine).
+
+```bash
+# 1. Run the service.
+cd service
+docker compose up --build -d                 # append-only store; persists to a named volume
+
+# 2. Mint an admin token (reads feedback back).
+docker compose exec loopback-svc python3 issue_token.py --email you@example.com --admin
+
+# 3. Mint a developer token (POSTs feedback only).
+docker compose exec loopback-svc python3 issue_token.py --email dev@example.com
+
+# 4. Query stored feedback as the admin.
+curl -H "Authorization: Bearer $ADMIN_TOKEN" "http://localhost:8080/feedback?severity=high&limit=50"
+```
+
+See [`docs/admin.md`](docs/admin.md) for full query examples (filters, pagination, jq pretty-printing) and [`docs/service.md`](docs/service.md) for the endpoint/auth/persistence reference.
 
 ## Documentation
 
 The canonical reference lives in [`docs/`](docs/README.md):
 
+- [docs/install.md](docs/install.md) — `npx @loopback/setup`: agents, flags, interactive branches, reinstall detection, credential rotation.
+- [docs/admin.md](docs/admin.md) — admin workflow: run the service, mint tokens, query `GET /feedback` via `curl` with all filters.
+- [docs/mcp.md](docs/mcp.md) — the MCP server: registration per harness and the six tools (the developer-facing API of recurring use — there is no CLI equivalent).
 - [docs/service.md](docs/service.md) — service: endpoints, status codes, auth/token model, persistence, troubleshooting.
-- [docs/cli.md](docs/cli.md) — the `loopback` CLI: commands, `config`/`list` flags, data dir, files `config` writes.
-- [docs/mcp.md](docs/mcp.md) — the MCP server: registration per harness and the six tools.
 - [docs/environment-variables.md](docs/environment-variables.md) — every env var + the data-dir and harness-detection chains.
 
-To run loopback end to end from a checkout, see [DEVELOPMENT.md](DEVELOPMENT.md).
-Package READMEs: [`loopback/`](loopback/README.md) (npm client) ·
-[`service/`](service/README.md).
-
-**Wire contract** — `loopback/core/feedback-record.schema.json` is the single source of truth
-(JSON Schema 2020-12), shared by client (ajv) and service (pydantic) and lockstep-tested. It
-carries only a synthesized `summary` and a redacted `evidenceExcerpt` — never raw content.
+To run loopback end to end from a checkout, see [`DEVELOPMENT.md`](DEVELOPMENT.md).
+Package READMEs: [`loopback/`](loopback/README.md) (MCP server + core) · [`setup/`](setup/) (installer) · [`service/`](service/README.md).
 
 ## Layout
 
 ```
-loopback/   # npm package: core + MCP server (bundle) + `loopback config` command + skill + command + hooks
+setup/      # npm package @loopback/setup: ephemeral installer (TypeScript + tsup)
+loopback/   # npm package `loopback`: shared core + MCP server (bundle) + skill + command
 service/    # FastAPI + SQLite append-only ingest service (Docker, tests, e2e)
+docs/       # user-facing reference (install, admin, mcp, service, env)
 tests/      # model-driven detector precision suite
 ```
 
 ## Status
 
-Beta (0.0.1): the full client loop and the append-only service are implemented and tested.
-**Roadmap:** an artifact/owner registry, dedup/clustering into one living issue per cluster,
-issue fan-out to the owning repo, and stronger auth.
+Beta (0.0.1): the installer, the MCP server, the detector skill, and the append-only service are implemented and tested end-to-end.
 
 ## Contributing
 
-Issues and PRs welcome. Changes to the wire contract must update **both**
-`loopback/core/feedback-record.schema.json` and `service/feedback-record.schema.json` (kept
-identical) and pass `service/tests/test_contract.py`.
+Issues and PRs welcome.
 
 ## License
 

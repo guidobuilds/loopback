@@ -85,11 +85,11 @@ server.registerTool(
       return err('record failed schema validation', { details });
     }
 
-    // Credentials precedence: env var > ~/.loopback/config.json (set by
-    // `loopback config`). The MCP server has no flags, so
-    // there's no flag layer here. The persisted base URL is combined with the
-    // `/feedback` path via core.wire.endpoint() — a missing base short-circuits
-    // to a null URL which postRecord rejects with a clear error.
+    // Credentials precedence: env var > ~/.loopback/config.json (written by
+    // `loopback auth`). The MCP server has no flags, so there's no flag layer
+    // here. The persisted base URL is combined with the `/feedback` path via
+    // core.wire.endpoint() — a missing base short-circuits to a null URL which
+    // postRecord rejects with a clear error.
     const { serviceUrl, token } = core.config.resolveCredentials({});
     const url = serviceUrl ? core.wire.endpoint(serviceUrl, '/feedback') : null;
     const result = await core.wire.postRecord(record, {

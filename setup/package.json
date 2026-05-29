@@ -1,0 +1,44 @@
+{
+  "name": "@loopback/setup",
+  "version": "0.0.1",
+  "description": "Ephemeral installer for loopback — wires the MCP server, skill, and command into your AI coding agent (Claude Code, OpenCode, Codex). One-shot via `npx`; no persistent CLI.",
+  "type": "module",
+  "bin": {
+    "loopback-setup": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "mcp-bundle",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "prebuild": "node scripts/prepare-mcp-bundle.mjs",
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "pretest": "node scripts/prepare-mcp-bundle.mjs && tsup",
+    "test": "node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "loopback",
+    "installer",
+    "claude-code",
+    "opencode",
+    "codex",
+    "mcp"
+  ],
+  "homepage": "https://github.com/guidobuilds/loopback",
+  "repository": "github:guidobuilds/loopback",
+  "license": "MIT",
+  "author": "Guido Caffa <caffaguido@gmail.com>",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsup": "^8.0.2",
+    "typescript": "^5.4.0"
+  }
+}

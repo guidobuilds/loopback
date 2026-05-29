@@ -10,16 +10,20 @@ it to a central append-only store the artifact's authors can review.
 
 | Doc | Covers |
 |-----|--------|
-| [service.md](service.md) | The FastAPI ingest service: how to run it, endpoints, status codes, auth/token model, persistence, troubleshooting. |
-| [cli.md](cli.md) | The `loopback` CLI: user-facing vs. internal commands, `setup`/`list` flags, the data dir, and the files `setup` writes per harness. |
-| [mcp.md](mcp.md) | The MCP server: registration per harness and the six tools (inputs + output shapes). |
+| [install.md](install.md) | `npx @loopback/setup`: agents, flags, interactive branches, reinstall detection, credential rotation, uninstall. |
+| [admin.md](admin.md) | Admin workflow: run the service, mint tokens with `issue_token.py`, query `GET /feedback` via `curl` with all filters. |
+| [mcp.md](mcp.md) | The MCP server: registration per harness and the six tools (the developer-facing API of recurring use — there is no CLI equivalent). |
+| [service.md](service.md) | The FastAPI ingest service: endpoints, status codes, auth/token model, persistence, troubleshooting. |
 | [environment-variables.md](environment-variables.md) | Every env var (service, client, detection, test-only) plus the data-dir and harness-detection chains. |
 
 ## Getting started
 
-- To **run loopback end to end from a checkout** (service in Docker + build/install
-  the CLI), see [`../DEVELOPMENT.md`](../DEVELOPMENT.md).
-- To **install the published package**, see [`../README.md`](../README.md) and
-  [`../loopback/README.md`](../loopback/README.md)
-  (`npx @guidobuilds/loopback config`).
-- The **service** package README is [`../service/README.md`](../service/README.md).
+- To **install loopback into your harness**, see [install.md](install.md) and
+  the top-level [`../README.md`](../README.md): `npx @loopback/setup`.
+- To **read feedback back as an admin**, see [admin.md](admin.md): run the
+  service, mint an admin token, query `GET /feedback` with `curl`.
+- To **run loopback end to end from a checkout** (service in Docker + build the
+  installer), see [`../DEVELOPMENT.md`](../DEVELOPMENT.md).
+- The **service** package README is [`../service/README.md`](../service/README.md);
+  the **installer** package is [`../setup/`](../setup/); the **MCP server +
+  core** package is [`../loopback/README.md`](../loopback/README.md).

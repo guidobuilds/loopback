@@ -72,13 +72,6 @@ section('mutes round-trip', () => {
   assert.strictEqual(core.mutes.isMuted(TMP, 'x'), false);
 });
 
-section('correction scan + turn-state priming', () => {
-  assert.strictEqual(core.turnState.scanCorrection('no, that is wrong'), true);
-  assert.strictEqual(core.turnState.scanCorrection('also add pagination'), false);
-  core.turnState.bumpCorrection(TMP, 's');
-  assert.ok(core.turnState.isPrimed(core.turnState.readState(TMP, 's')));
-});
-
 // core/config.js — single source of truth for LOOPBACK_SERVICE_URL/_TOKEN at
 // ~/.loopback/config.json. Tests run against a throwaway HOME so the real
 // ~/.loopback is never touched. Each test isolates HOME + env to avoid cross-
@@ -137,26 +130,23 @@ section('core/config: saveConfig writes with mode 0600', () => {
     assert.strictEqual(loaded.serviceUrl, 'http://x');
     assert.strictEqual(loaded.token, 'tok');
     assert.strictEqual(loaded.schemaVersion, 2);
-    assert.strictEqual(loaded.ingestUrl, undefined, 'never persists an ingestUrl field');
   } finally {
     process.env.HOME = savedHome;
   }
 });
 
-// Whitelist-write: saveConfig drops every key that is not part of the
-// canonical schema (`schemaVersion`, `serviceUrl`, `token`). Pre-existing
-// files carrying legacy fields (e.g. the old `ingestUrl`) or arbitrary cruft
-// are sanitized on the next save. Pins the no-reference-to-legacy invariant.
-section('core/config: saveConfig is a strict whitelist (drops unknown + legacy keys)', () => {
+// Whitelist-write: saveConfig drops every key that is not part of the canonical
+// schema (`schemaVersion`, `serviceUrl`, `token`). Pre-existing files carrying
+// arbitrary cruft are sanitized on the next save.
+section('core/config: saveConfig is a strict whitelist (drops unknown keys)', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-cfg-'));
   const savedHome = process.env.HOME;
   process.env.HOME = home;
   try {
     fs.mkdirSync(path.join(home, '.loopback'), { recursive: true });
-    // Legacy fixture: old schemaVersion, legacy ingestUrl, plus arbitrary cruft.
     fs.writeFileSync(
       path.join(home, '.loopback', 'config.json'),
-      JSON.stringify({ schemaVersion: 1, ingestUrl: 'http://x/feedback', token: 'OLD', randomCruft: 'y' })
+      JSON.stringify({ schemaVersion: 2, serviceUrl: 'http://existing', token: 'EXISTING', randomCruft: 'y' })
     );
     core.config.saveConfig({ serviceUrl: 'http://new', token: 'NEW' });
     const raw = fs.readFileSync(path.join(home, '.loopback', 'config.json'), 'utf8');
@@ -169,56 +159,9 @@ section('core/config: saveConfig is a strict whitelist (drops unknown + legacy k
     assert.strictEqual(parsed.schemaVersion, 2);
     assert.strictEqual(parsed.serviceUrl, 'http://new');
     assert.strictEqual(parsed.token, 'NEW');
-    assert.strictEqual(parsed.ingestUrl, undefined, 'no ingestUrl key on disk');
     assert.strictEqual(parsed.randomCruft, undefined, 'no unknown keys on disk');
   } finally {
     process.env.HOME = savedHome;
-  }
-});
-
-// Hard break: pre-existing config files that still carry the old `ingestUrl`
-// field are NOT migrated. The field is silently ignored — loadConfig returns
-// the parsed object with `serviceUrl` left undefined. The user re-runs
-// `loopback config --service-url URL` to populate it.
-section('core/config: legacy ingestUrl field is ignored (no migration)', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-cfg-'));
-  const savedHome = process.env.HOME;
-  process.env.HOME = home;
-  try {
-    fs.mkdirSync(path.join(home, '.loopback'), { recursive: true });
-    fs.writeFileSync(
-      path.join(home, '.loopback', 'config.json'),
-      JSON.stringify({ schemaVersion: 1, ingestUrl: 'http://x/feedback', token: 'tok-legacy' })
-    );
-    const loaded = core.config.loadConfig();
-    assert.strictEqual(loaded.serviceUrl, undefined, 'legacy ingestUrl is NOT migrated to serviceUrl');
-    assert.strictEqual(loaded.token, 'tok-legacy', 'unrelated fields still load');
-  } finally {
-    process.env.HOME = savedHome;
-  }
-});
-
-// Hard break: LOOPBACK_INGEST_URL is no longer honored as an env fallback. A
-// process exporting only the legacy var (with no LOOPBACK_SERVICE_URL and no
-// file) MUST get back `serviceUrl: undefined`, NOT a /feedback-stripped value.
-section('core/config: LOOPBACK_INGEST_URL env is NOT honored (no fallback)', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-cfg-'));
-  const savedHome = process.env.HOME;
-  const savedUrl = process.env.LOOPBACK_SERVICE_URL;
-  const savedLegacyUrl = process.env.LOOPBACK_INGEST_URL;
-  const savedTok = process.env.LOOPBACK_TOKEN;
-  process.env.HOME = home;
-  delete process.env.LOOPBACK_SERVICE_URL;
-  delete process.env.LOOPBACK_TOKEN;
-  process.env.LOOPBACK_INGEST_URL = 'http://x/feedback';
-  try {
-    const r = core.config.resolveCredentials({});
-    assert.strictEqual(r.serviceUrl, undefined, 'legacy env is not used as a fallback');
-  } finally {
-    process.env.HOME = savedHome;
-    if (savedUrl !== undefined) process.env.LOOPBACK_SERVICE_URL = savedUrl; else delete process.env.LOOPBACK_SERVICE_URL;
-    if (savedLegacyUrl !== undefined) process.env.LOOPBACK_INGEST_URL = savedLegacyUrl; else delete process.env.LOOPBACK_INGEST_URL;
-    if (savedTok !== undefined) process.env.LOOPBACK_TOKEN = savedTok; else delete process.env.LOOPBACK_TOKEN;
   }
 });
 
@@ -277,14 +220,8 @@ section('assembleRecord redacts + stamps harness and validates', () => {
   assert.ok(!('anonUserId' in rec), 'anonUserId must not be stamped');
 });
 
-// `loopback list` read path (async: flag->query mapping, table/json renderers,
-// and fetchRecords against a throwaway HTTP server). Runs before the MCP smoke.
-require('./list').run().then(() => {
-  console.log('\nMCP integration smoke:');
-  execFileSync('node', [path.join(__dirname, 'mcp-smoke.js')], { stdio: 'inherit', env: process.env });
+// MCP integration smoke runs after the synchronous core checks above.
+console.log('\nMCP integration smoke:');
+execFileSync('node', [path.join(__dirname, 'mcp-smoke.js')], { stdio: 'inherit', env: process.env });
 
-  console.log('\nALL CLIENT TESTS PASSED');
-}).catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+console.log('\nALL CLIENT TESTS PASSED');

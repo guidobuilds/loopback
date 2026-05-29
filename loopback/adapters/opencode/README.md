@@ -1,44 +1,44 @@
-# loopback — OpenCode adapter
+# loopback — OpenCode
 
-Brings the harness-agnostic loopback feedback loop to [OpenCode](https://opencode.ai).
-The shared core, MCP server (bundle), and CLI are reused unchanged; this directory
-holds the OpenCode-specific glue (the tripwire plugin). **You don't install this by
-hand** — `loopback config` does it for you.
+Brings the harness-agnostic loopback feedback loop to
+[OpenCode](https://opencode.ai). The shared core and MCP server (bundle) are
+reused unchanged; OpenCode-specific wiring is handled by `@loopback/setup`.
+
+There is **no OpenCode plugin and no tripwire glue** — the detector skill is
+driven by description-match, and all interactions go through the MCP server's
+six tools. This directory remains as a placeholder for any future
+OpenCode-specific adapter code; today there is none.
 
 ## Install
 
 ```sh
-npx @guidobuilds/loopback config opencode --service-url <url> --token <tok>
+npx @loopback/setup opencode
 ```
 
-That single command:
-- registers the MCP server in `~/.config/opencode/opencode.json` (`mcp.loopback`,
-  pointing at the prebuilt bundle; credentials live in `~/.loopback/config.json`);
-- installs `plugins/loopback.ts` into `~/.config/opencode/plugins/` (baking the
-  absolute CLI path so no `LOOPBACK_CLI` export is needed);
-- copies the portable skill into `~/.config/opencode/skills/feedback-detector/`;
-- copies the `/harness-feedback` command into `~/.config/opencode/commands/`.
+`@loopback/setup opencode`:
 
-It's idempotent and preserves your existing `opencode.json`. The originating
-harness (`client.harness`) is **auto-detected at runtime** — nothing to configure.
+- registers the MCP server in `~/.config/opencode/opencode.json(c)` under
+  `mcp.loopback` (pointing at `~/.loopback/mcp/server.bundle.js`; credentials
+  live in `~/.loopback/config.json`);
+- copies the portable detector skill into
+  `~/.config/opencode/skills/feedback-detector/`;
+- copies the `/harness-feedback` command into
+  `~/.config/opencode/commands/harness-feedback.md`.
 
-## Baseline vs. auto-detection
+The installer is idempotent and preserves any other keys in your
+`opencode.json(c)`. See [`../../../docs/install.md`](../../../docs/install.md)
+for the full flag reference.
 
-- **Baseline (solid):** MCP server + portable skill + `/harness-feedback` give the
-  full synthesize → consent → submit flow. The model sees the user's corrections in
-  the conversation and runs the skill; nothing leaves the machine without `[S]end`.
-- **Auto-detection (best-effort):** the plugin records file writes
-  (`tool.execute.after`) and scans user messages on the `event` bus. Unlike Claude
-  Code, **OpenCode has no turn-blocking hook**, so the plugin cannot force the skill
-  to run at the turn boundary — it only enriches the state the skill reads via the
-  `get_session_state` MCP tool.
+## Verify the install
 
-## ⚠️ Verify before relying on the plugin
+```sh
+opencode mcp list
+```
 
-The plugin's `event` handler feature-detects the user-message shape, which can vary
-by OpenCode version. It **fails safe** (never throws; no-ops on an unrecognized
-shape). Before depending on auto-detection, confirm against your installed OpenCode
-that write/edit tool names match `WRITE_TOOLS` (file path at `input.args.filePath`)
-and that user-message events expose role + text where `userText()` looks.
+Confirm `loopback` appears as a connected MCP server. The same six tools
+(`submit_feedback`, `redact_preview`, `mute_artifact`, `is_muted`,
+`record_signal`, `get_session_state`) are available; the detector skill drives
+the flow identically to other harnesses.
 
-Run `opencode mcp list` to confirm the `loopback` MCP server is connected.
+For the MCP tool reference see
+[`../../../docs/mcp.md`](../../../docs/mcp.md).
