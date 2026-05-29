@@ -162,7 +162,7 @@ async function resolveCreds(args: ParsedArgs): Promise<ResolvedCreds> {
     console.log(
       `${TEXT}✓${RESET} Found existing credentials for ${BOLD}${existing.serviceUrl}${RESET} ${DIM}(token: ${redactToken(existing.token)})${RESET}`
     );
-    const keep = await confirm('Use these credentials?', true);
+    const keep = args.yes ? true : await confirm('Use these credentials?', true);
     if (keep) {
       return {
         serviceUrl: existing.serviceUrl as string,
@@ -436,7 +436,7 @@ export async function runInstall(args: ParsedArgs): Promise<void> {
     console.log(
       `${TEXT}✓${RESET} loopback is already installed in ${BOLD}${AGENT_DISPLAY[agent]}${RESET}`
     );
-    const proceed = await confirm('Reinstall?', false);
+    const proceed = args.yes ? false : await confirm('Reinstall?', false);
     if (!proceed) {
       console.log(`${DIM}No changes made.${RESET}`);
       return;

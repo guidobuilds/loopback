@@ -134,7 +134,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  if (wantsHelp || argv.length === 0) {
+  if (wantsHelp) {
     showHelp();
     process.exit(0);
   }
