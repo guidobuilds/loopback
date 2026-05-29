@@ -66,7 +66,7 @@ Compose, so it writes to `/data/loopback.db` in the volume).
 Hand the developer token to the developer; they pass it to the installer:
 
 ```bash
-npx @loopback/setup claude-code --service-url http://localhost:8080 --token <token>
+npx @guidobuilds/loopback-setup claude-code --service-url http://localhost:8080 --token <token>
 ```
 
 ## 3. Query feedback via `curl`
@@ -155,7 +155,7 @@ Dump the whole corpus and slice it locally:
 ```bash
 # Compact: id + severity + summary, one record per line.
 curl -sH "Authorization: Bearer $ADMIN_TOKEN" "$URL/feedback?limit=0" \
-  | jq -c '.[] | {id: .serverId, severity, summary}'
+  | jq -c '.[] | {id, severity, summary}'
 
 # High-severity records for one artifact, full JSON:
 curl -sH "Authorization: Bearer $ADMIN_TOKEN" \
@@ -182,10 +182,10 @@ All filters are exact match (unless noted) and combined with **AND**.
 | `limit` | page size | default `100`. `limit=0` → all records. `limit < 0` / non-integer → `400`. |
 | `offset` | records to skip | default `0`. `offset < 0` / non-integer → `400`. |
 
-Each returned record carries two server-added fields outside the wire schema:
-`serverId` (the DB primary key, `fb_srv_…`) and `submitterEmail` (resolved
-from the POSTing token). See [service.md](service.md#get-feedback-pagination)
-for the full status contract.
+Each returned record carries two fields outside the ingest wire schema: `id`
+(the server-assigned primary key, `fb_…` — the ingest body carries none) and
+`submitterEmail` (resolved from the POSTing token). See
+[service.md](service.md#get-feedback-pagination) for the full status contract.
 
 ## Common status codes
 

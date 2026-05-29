@@ -13,7 +13,7 @@ redacted excerpt happen via these tools through the harness.
 - **Source:** `loopback/mcp/index.js`, bundled to
   `loopback/mcp/server.bundle.js` via `npm run build` (uses bun). The bundle is
   self-contained and dependency-free; it is what ships in the npm package and
-  what `@loopback/setup` extracts to `~/.loopback/mcp/server.bundle.js`.
+  what `@guidobuilds/loopback-setup` extracts to `~/.loopback/mcp/server.bundle.js`.
 - **Command:** `node <abs>/server.bundle.js`.
 
 Nothing here makes a defect-vs-iteration judgment — that is the skill's job. The
@@ -21,7 +21,7 @@ server only validates, redacts, transmits, and tracks state the user approved.
 
 ## Registration
 
-`@loopback/setup` registers the server automatically per harness (see
+`@guidobuilds/loopback-setup` registers the server automatically per harness (see
 [install.md](install.md#what-gets-written-per-agent)). The shapes it writes:
 
 **Claude Code** (`claude mcp add-json loopback … -s user`):
@@ -46,14 +46,14 @@ args = ["<abs>/server.bundle.js"]
 ```
 
 Credentials live in `~/.loopback/config.json` (single source of truth) and are
-written exclusively by `@loopback/setup`. The installer never writes per-harness
+written exclusively by `@guidobuilds/loopback-setup`. The installer never writes per-harness
 `env`/`environment` blocks for `LOOPBACK_*`. Any env keys the user added by
 hand under the loopback entry are preserved across re-runs (OpenCode / Codex).
 
 ## Environment
 
 The server reads credentials from `~/.loopback/config.json` (written by
-`@loopback/setup`). Environment variables `LOOPBACK_SERVICE_URL` /
+`@guidobuilds/loopback-setup`). Environment variables `LOOPBACK_SERVICE_URL` /
 `LOOPBACK_TOKEN` still act as a per-session override when set. The
 service URL is the **base** (no `/feedback`); endpoint paths are derived per
 call. The originating harness (`client.harness`) is **auto-detected at

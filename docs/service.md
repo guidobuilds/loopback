@@ -61,7 +61,7 @@ Locally `DB_PATH` defaults to `/tmp/loopback.db`.
 
 | Status | Meaning |
 |--------|---------|
-| `200` | Stored. Server assigns the id, persists, returns `{"status":"stored","id":"fb_srv_…"}`. |
+| `200` | Stored. The body carries no id; the server assigns one, persists, and returns `{"status":"stored","id":"fb_…"}`. |
 | `400` | Schema-invalid body or malformed JSON. (FastAPI/pydantic's default `422` for body validation is normalized to `400` here, because `422` is reserved for the case below.) |
 | `401` | Missing/malformed/unknown bearer token. |
 | `422` | PII/secret patterns remain in `summary`/`evidenceExcerpt` → the record is **quarantined** (NOT written to the main `records` table). |
@@ -95,10 +95,12 @@ All optional, exact match unless noted, combined with **AND**.
 | `received_from` | server receive time `>=` | inclusive, ISO-8601 lexical |
 | `received_to` | server receive time `<=` | inclusive, ISO-8601 lexical |
 
-Each returned record carries two **server-added** fields outside the wire
-schema: `serverId` (the DB primary key, `fb_srv_…`) and `submitterEmail` (the
-authenticated submitter, resolved from the POSTing token). No client-supplied
-user identifier is carried — submitter identity is **server-side only**.
+The ingest body carries **no id** — the server assigns the canonical id
+(`fb_…`) on `POST` and returns it. Each record read back carries two fields
+outside the ingest wire schema: `id` (that server-assigned id, the DB primary
+key) and `submitterEmail` (the authenticated submitter, resolved from the
+POSTing token). No client-supplied id or user identifier is carried — both the
+record id and submitter identity are **server-side only**.
 
 ```bash
 # default page (first 100):
@@ -160,7 +162,7 @@ Four tables:
 |-------|---------|------------|
 | `users` | A person, keyed by unique `email`; carries `is_admin`. | `id`, `email` (unique), `is_admin`, `created_at` |
 | `tokens` | Per-user API tokens, hash-at-rest, append-only (re-issuing for an email appends a new row under the same user). | `id`, `user_id` → `users`, `token_hash` (unique), `created_at` |
-| `records` | The append-only feedback store. `id` is the server-assigned primary key (`fb_srv_…`). | `id`, `client_id`, `schema_version`, `artifact_*`, `summary`, `work_type`, `evidence_excerpt`, `timestamp`, `severity`, `confidence`, `cluster_key`, `client_plugin`, `client_harness`, `created_at`, `user_id` → `users` (NOT NULL) |
+| `records` | The append-only feedback store. `id` is the server-assigned primary key (`fb_…`); the ingest body carries none. | `id`, `schema_version`, `artifact_*`, `summary`, `work_type`, `evidence_excerpt`, `timestamp`, `severity`, `confidence`, `cluster_key`, `client_plugin`, `client_harness`, `created_at`, `user_id` → `users` (NOT NULL) |
 | `quarantine` | Records that failed the server-side redaction re-check (no user link, holds the full raw JSON). | `id`, `reason`, `payload`, `created_at` |
 
 `DB_PATH` controls the SQLite path (default `/tmp/loopback.db` locally,

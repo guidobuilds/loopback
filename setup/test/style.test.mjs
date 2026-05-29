@@ -76,7 +76,7 @@ test('style: showBanner() includes tagline + try line', () => {
   const out = chunks.join('');
   assert.ok(out.includes('The harness-agnostic feedback loop'), 'tagline present');
   assert.ok(out.includes('try:'), 'try-line present');
-  assert.ok(out.includes('npx @loopback/setup'), 'npx hint present');
+  assert.ok(out.includes('npx @guidobuilds/loopback-setup'), 'npx hint present');
 });
 
 test('detect-agent: returns true when AI_AGENT is set, false when no agent env is set', () => {

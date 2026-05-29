@@ -44,7 +44,6 @@ def test_post_works_with_non_admin_token(client, token):
 
 def test_post_works_with_admin_token(client, admin_token):
     body = load_fixture("record.valid.json")
-    body["id"] = "fb_01J8ZQK3M7N2P5R8T1V4W6X9A1"
     r = client.post(
         "/feedback",
         json=body,
@@ -72,6 +71,18 @@ def test_extra_field_is_400(client, token):
     assert r.status_code == 400, r.text
 
 
+def test_client_supplied_id_is_rejected_400(client, token):
+    # The record carries no id: the server assigns it. A client that still sends
+    # one is rejected by additionalProperties:false (clean break, not silently
+    # ignored), so a stale client can't smuggle a chosen primary key.
+    body = load_fixture("record.valid.json")
+    body["id"] = "fb_client_chosen"
+    r = client.post(
+        "/feedback", json=body, headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 400, r.text
+
+
 def test_leaked_pii_is_422_and_quarantined_not_stored(client, token, admin_token):
     r = client.post(
         "/feedback",
@@ -82,11 +93,11 @@ def test_leaked_pii_is_422_and_quarantined_not_stored(client, token, admin_token
     body = r.json()
     assert "email" in body.get("patterns", [])
 
-    # The quarantined record is NOT in the append-only store (admin read-back).
+    # The quarantined record is NOT in the append-only store: a fresh DB that
+    # only saw this one (quarantined) POST has an empty read-back.
     rr = client.get("/feedback", headers={"Authorization": f"Bearer {admin_token}"})
     assert rr.status_code == 200
-    ids = [rec["id"] for rec in rr.json()]
-    assert "fb_01J8ZQK3M7N2P5R8T1V4W6X9Y2" not in ids
+    assert rr.json() == [], rr.json()
 
 
 def test_happy_path_stores_and_returns_server_id(client, token):
@@ -97,7 +108,7 @@ def test_happy_path_stores_and_returns_server_id(client, token):
     )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["id"].startswith("fb_srv_"), body
+    assert body["id"].startswith("fb_"), body
     assert body["status"] == "stored", body
     # The MVP response is just {id, status}; routing fields are gone.
     assert set(body.keys()) == {"id", "status"}, body
@@ -112,20 +123,23 @@ def test_stored_record_is_retrievable_via_get_feedback(client, token, admin_toke
         headers={"Authorization": f"Bearer {token}"},
     )
     assert post.status_code == 200, post.text
+    # The record carries no id; the canonical id is whatever the server assigned
+    # and returned. Read it back by that server id (not a client-chosen value).
+    server_id = post.json()["id"]
+    assert server_id.startswith("fb_"), post.text
 
     via_feedback = client.get(
         "/feedback", headers={"Authorization": f"Bearer {admin_token}"}
     )
     assert via_feedback.status_code == 200
     recs = via_feedback.json()
-    assert any(rec["id"] == "fb_01J8ZQK3M7N2P5R8T1V4W6X9Y0" for rec in recs), recs
+    assert any(rec["id"] == server_id for rec in recs), recs
     # The stored record carries its data through unchanged. anonUserId is gone
     # from the wire contract entirely — the submitter is resolved server-side
     # from the auth token (records.user_id), never carried on the record.
-    stored = next(rec for rec in recs if rec["id"] == "fb_01J8ZQK3M7N2P5R8T1V4W6X9Y0")
+    stored = next(rec for rec in recs if rec["id"] == server_id)
     assert stored["artifact"]["id"] == "prd-writer", stored
     assert "anonUserId" not in stored, stored
-    assert stored["serverId"].startswith("fb_srv_"), stored
 
     # The persisted record links to the authenticated submitter (records.user_id
     # NOT NULL FK), resolved from the POSTing token — here the non-admin `dev`.
@@ -138,7 +152,7 @@ def test_stored_record_is_retrievable_via_get_feedback(client, token, admin_toke
         row = session.execute(
             select(User.email)
             .join(Record, Record.user_id == User.id)
-            .where(Record.id == stored["serverId"])
+            .where(Record.id == server_id)
         ).scalar_one()
     finally:
         session.close()
@@ -171,7 +185,6 @@ def test_prose_with_slashes_is_200_not_422(client, token):
     # prose ("Problem/Solution/Metrics", "TCP/IP", "and/or") as a filesystem path.
     # A clean summary like this must be ACCEPTED (200), never quarantined (422).
     body = load_fixture("record.valid.json")
-    body["id"] = "fb_01J8ZQK3M7N2P5R8T1V4W6X9Z9"
     body["summary"] = (
         "PRDs should use the Problem/Solution/Metrics template; "
         "support TCP/IP and/or UDP; read/write access required."
@@ -185,16 +198,17 @@ def test_prose_with_slashes_is_200_not_422(client, token):
 
 
 def _seed(client, token, n):
-    # Append n valid records with distinct ids; returns them oldest-first by id.
+    # Append n valid records; the server assigns each id and returns it. Returns
+    # the server ids in insertion order (which is also the read-back order, since
+    # GET /feedback orders by created_at and ties resolve to insertion order).
     ids = []
-    for i in range(n):
+    for _ in range(n):
         body = load_fixture("record.valid.json")
-        body["id"] = f"fb_01J8ZQK3M7N2P5R8T1V4W6X{i:03d}"
         r = client.post(
             "/feedback", json=body, headers={"Authorization": f"Bearer {token}"}
         )
         assert r.status_code == 200, r.text
-        ids.append(body["id"])
+        ids.append(r.json()["id"])
     return ids
 
 
@@ -267,8 +281,7 @@ def _seed_record(client, *, id, artifact_id="prd-writer", severity=None,
         )
         session.flush()
         session.add(Record(
-            id="fb_srv_" + id,
-            client_id=id,
+            id=id,
             schema_version=1,
             artifact_kind="skill",
             artifact_id=artifact_id,
@@ -372,9 +385,10 @@ def test_submitter_email_present(client, token, admin_token):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert post.status_code == 200, post.text
+    server_id = post.json()["id"]
     r = client.get("/feedback", headers={"Authorization": f"Bearer {admin_token}"})
     assert r.status_code == 200
-    rec = next(x for x in r.json() if x["id"] == "fb_01J8ZQK3M7N2P5R8T1V4W6X9Y0")
+    rec = next(x for x in r.json() if x["id"] == server_id)
     assert rec["submitterEmail"] == "dev@example.com", rec
     assert "anonUserId" not in rec, rec
 
@@ -383,7 +397,6 @@ def test_real_path_in_summary_is_422(client, token):
     # The narrowed heuristic must STILL catch genuine paths: a real absolute path
     # in an otherwise prose-y summary is a leak -> 422 + quarantine.
     body = load_fixture("record.valid.json")
-    body["id"] = "fb_01J8ZQK3M7N2P5R8T1V4W6X9Z8"
     body["summary"] = "Problem/Solution/Metrics template lives at /Users/alice/secret/notes.md"
     r = client.post(
         "/feedback", json=body, headers={"Authorization": f"Bearer {token}"}

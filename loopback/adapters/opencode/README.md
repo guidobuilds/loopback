@@ -2,7 +2,7 @@
 
 Brings the harness-agnostic loopback feedback loop to
 [OpenCode](https://opencode.ai). The shared core and MCP server (bundle) are
-reused unchanged; OpenCode-specific wiring is handled by `@loopback/setup`.
+reused unchanged; OpenCode-specific wiring is handled by `@guidobuilds/loopback-setup`.
 
 There is **no OpenCode plugin and no tripwire glue** — the detector skill is
 driven by description-match, and all interactions go through the MCP server's
@@ -12,10 +12,10 @@ OpenCode-specific adapter code; today there is none.
 ## Install
 
 ```sh
-npx @loopback/setup opencode
+npx @guidobuilds/loopback-setup opencode
 ```
 
-`@loopback/setup opencode`:
+`@guidobuilds/loopback-setup opencode`:
 
 - registers the MCP server in `~/.config/opencode/opencode.json(c)` under
   `mcp.loopback` (pointing at `~/.loopback/mcp/server.bundle.js`; credentials

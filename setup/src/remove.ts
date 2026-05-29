@@ -1,5 +1,5 @@
 /**
- * Remove flow for `@loopback/setup`.
+ * Remove flow for `@guidobuilds/loopback-setup`.
  *
  * Mirror of install.ts in reverse — un-registers the MCP server from the
  * chosen agent's config, deletes the feedback-detector skill directory and

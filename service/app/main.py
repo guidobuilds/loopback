@@ -137,10 +137,12 @@ def _records_as_wire(
 ) -> List[dict]:
     """Return stored records (oldest first), reconstructed in the wire record shape.
 
-    The shape matches ``feedback-record.schema.json`` (plus the server-added
-    ``serverId`` and ``submitterEmail`` fields, which live OUTSIDE the wire
-    schema) so E2E can re-validate stored records after popping those two server
-    fields. No client-supplied user identifier is carried.
+    The shape matches ``feedback-record.schema.json`` plus two server-added fields
+    that live OUTSIDE the ingest wire contract: ``id`` (the server-assigned
+    canonical id, ``fb_<uuid>`` — the ingest body carries none) and
+    ``submitterEmail`` (resolved from the auth token). E2E re-validates stored
+    records against the schema after popping those two. No client-supplied id or
+    user identifier is carried.
 
     ``limit=None`` returns ALL records (the ``?limit=0`` escape hatch); a numeric
     ``limit``/``offset`` page at the SQL level. ``filters`` is an optional dict of
@@ -177,8 +179,7 @@ def _records_as_wire(
     out: List[dict] = []
     for r, submitter_email in rows:
         out.append({
-            "id": r.client_id or r.id,
-            "serverId": r.id,
+            "id": r.id,
             "submitterEmail": submitter_email,
             "schemaVersion": r.schema_version,
             "artifact": {
@@ -256,10 +257,12 @@ def create_app(db_path: Optional[str] = None) -> FastAPI:
             )
 
         # 3. Server-side redaction re-check (design §7). Leak -> 422 + quarantine.
+        #    The record carries no client id, so the quarantine row gets its own
+        #    server-assigned id (same 'fb_<uuid>' shape as accepted records).
         reasons = redact.leak_reasons(record.summary, record.evidenceExcerpt)
         if reasons:
-            session.merge(Quarantine(
-                id=record.id,
+            session.add(Quarantine(
+                id="fb_" + uuid.uuid4().hex,
                 reason=",".join(reasons),
                 payload=json.dumps(raw),
                 created_at=_now(),
@@ -272,11 +275,10 @@ def create_app(db_path: Optional[str] = None) -> FastAPI:
 
         # 4. Accept: assign a server id and append the record to the store. The
         #    record is linked to the authenticated submitter via user_id.
-        server_id = "fb_srv_" + uuid.uuid4().hex
+        server_id = "fb_" + uuid.uuid4().hex
         art = record.artifact
         session.add(Record(
             id=server_id,
-            client_id=record.id,
             schema_version=record.schemaVersion,
             artifact_kind=art.kind.value,
             artifact_id=art.id,

@@ -81,12 +81,12 @@ recs=json.load(sys.stdin)
 assert recs, 'no records stored'
 v=D(schema)
 for r in recs:
-    assert r.get('serverId','').startswith('fb_srv_'), ('missing server id', r)
+    assert r.get('id','').startswith('fb_'), ('missing server id', r)
     assert r.get('submitterEmail'), ('missing submitter email', r)
     assert 'anonUserId' not in r, ('anonUserId must be gone from the wire', r)
-    # serverId + submitterEmail are server-added (outside the wire schema); pop
-    # them before validating so additionalProperties:false does not trip.
-    r=dict(r); r.pop('serverId',None); r.pop('submitterEmail',None)
+    # id (server-assigned) + submitterEmail are server-added (outside the ingest
+    # schema); pop them before validating so additionalProperties:false does not trip.
+    r=dict(r); r.pop('id',None); r.pop('submitterEmail',None)
     errs=list(v.iter_errors(r))
     assert not errs, [e.message for e in errs]
 print('stored record(s) schema-valid and retrievable via GET /feedback:', len(recs))

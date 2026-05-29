@@ -29,7 +29,7 @@ loopback ships three pieces:
 
 | Component | What it is | Where it lives |
 |-----------|------------|----------------|
-| **Installer** (`@loopback/setup`) | Ephemeral one-shot `npx` installer. Wires the MCP server, skill, and `/harness-feedback` command into your harness. No persistent CLI is left behind. | npm package `@loopback/setup`, source in [`setup/`](setup/) |
+| **Installer** (`@guidobuilds/loopback-setup`) | Ephemeral one-shot `npx` installer. Wires the MCP server, skill, and `/harness-feedback` command into your harness. No persistent CLI is left behind. | npm package `@guidobuilds/loopback-setup`, source in [`setup/`](setup/) |
 | **MCP server** (bundled) | The universal interface to loopback (six tools: `submit_feedback`, `redact_preview`, `mute_artifact`, `is_muted`, `record_signal`, `get_session_state`). Same `feedback-detector` skill drives it under every harness. | npm package `loopback`, source in [`loopback/`](loopback/) |
 | **Service** (FastAPI) | Append-only ingest + token-guarded read-back. Per-user hashed-token bearer auth, SQLite + Alembic. | [`service/`](service/) |
 
@@ -39,10 +39,10 @@ Install loopback into your harness with one command:
 
 ```bash
 # Interactive wizard (recommended) — prompts for agent + service URL + token:
-npx @loopback/setup
+npx @guidobuilds/loopback-setup
 
 # Or non-interactive with overrides:
-npx @loopback/setup claude-code --service-url <url> --token <token> --yes
+npx @guidobuilds/loopback-setup claude-code --service-url <url> --token <token> --yes
 ```
 
 Then open your agent and try `/harness-feedback` — or just correct a skill's output and let the detector raise the consent gate.
@@ -50,9 +50,9 @@ Then open your agent and try `/harness-feedback` — or just correct a skill's o
 To uninstall:
 
 ```bash
-npx @loopback/setup --remove                # interactive picker
-npx @loopback/setup --remove claude-code    # specific agent
-npx @loopback/setup --remove --all          # also wipe ~/.loopback/ (credentials + bundled MCP server)
+npx @guidobuilds/loopback-setup --remove                # interactive picker
+npx @guidobuilds/loopback-setup --remove claude-code    # specific agent
+npx @guidobuilds/loopback-setup --remove --all          # also wipe ~/.loopback/ (credentials + bundled MCP server)
 ```
 
 See [`docs/install.md`](docs/install.md) for the full installer reference.
@@ -82,7 +82,7 @@ See [`docs/admin.md`](docs/admin.md) for full query examples (filters, paginatio
 
 The canonical reference lives in [`docs/`](docs/README.md):
 
-- [docs/install.md](docs/install.md) — `npx @loopback/setup`: agents, flags, interactive branches, reinstall detection, credential rotation.
+- [docs/install.md](docs/install.md) — `npx @guidobuilds/loopback-setup`: agents, flags, interactive branches, reinstall detection, credential rotation.
 - [docs/admin.md](docs/admin.md) — admin workflow: run the service, mint tokens, query `GET /feedback` via `curl` with all filters.
 - [docs/mcp.md](docs/mcp.md) — the MCP server: registration per harness and the six tools (the developer-facing API of recurring use — there is no CLI equivalent).
 - [docs/service.md](docs/service.md) — service: endpoints, status codes, auth/token model, persistence, troubleshooting.
@@ -94,7 +94,7 @@ Package READMEs: [`loopback/`](loopback/README.md) (MCP server + core) · [`setu
 ## Layout
 
 ```
-setup/      # npm package @loopback/setup: ephemeral installer (TypeScript + tsup)
+setup/      # npm package @guidobuilds/loopback-setup: ephemeral installer (TypeScript + tsup)
 loopback/   # npm package `loopback`: shared core + MCP server (bundle) + skill + command
 service/    # FastAPI + SQLite append-only ingest service (Docker, tests, e2e)
 docs/       # user-facing reference (install, admin, mcp, service, env)

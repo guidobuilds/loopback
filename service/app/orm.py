@@ -82,8 +82,7 @@ class Record(Base):
 
     __tablename__ = "records"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)  # server-assigned id
-    client_id: Mapped[Optional[str]] = mapped_column(Text)  # id the client sent
+    id: Mapped[str] = mapped_column(Text, primary_key=True)  # server-assigned id (fb_<uuid>)
     schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
     artifact_kind: Mapped[str] = mapped_column(Text, nullable=False)  # skill|agent|artifact
     artifact_id: Mapped[Optional[str]] = mapped_column(Text)

@@ -163,7 +163,7 @@ def test_record_requires_user_id():
     session = factory()
     try:
         session.add(Record(
-            id="fb_srv_x",
+            id="fb_x",
             schema_version=1,
             artifact_kind="skill",
             summary="s",
@@ -183,7 +183,7 @@ def test_record_user_id_fk_must_exist():
     session = factory()
     try:
         session.add(Record(
-            id="fb_srv_y",
+            id="fb_y",
             schema_version=1,
             artifact_kind="skill",
             summary="s",

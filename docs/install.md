@@ -1,12 +1,11 @@
 # Installer reference
 
-`@loopback/setup` is the **ephemeral, one-shot installer** for loopback. It wires
+`@guidobuilds/loopback-setup` is the **ephemeral, one-shot installer** for loopback. It wires
 the bundled MCP server, the `feedback-detector` skill, and the
-`/harness-feedback` command into your harness — then exits. There is no
-persistent CLI left on your machine.
+`/harness-feedback` command into your harness — then exits.
 
 ```bash
-npx @loopback/setup [agent] [options]
+npx @guidobuilds/loopback-setup [agent] [options]
 ```
 
 `agent` is one of `claude-code`, `opencode`, `codex`. Omit it to pick
@@ -16,10 +15,10 @@ interactively.
 
 ```bash
 # Interactive wizard — prompts for agent + service URL + token:
-npx @loopback/setup
+npx @guidobuilds/loopback-setup
 
 # Non-interactive — pick the agent, pass credentials, skip prompts:
-npx @loopback/setup claude-code --service-url <url> --token <tok> --yes
+npx @guidobuilds/loopback-setup claude-code --service-url <url> --token <tok> --yes
 ```
 
 The installer:
@@ -134,33 +133,33 @@ exits `1` with a clear error instead of hanging.
 
 ```bash
 # Fully non-interactive (CI / scripts):
-npx @loopback/setup claude-code --service-url $URL --token $TOKEN --yes
+npx @guidobuilds/loopback-setup claude-code --service-url $URL --token $TOKEN --yes
 
 # Fully non-interactive with reinstall override:
-npx @loopback/setup claude-code --token $NEW_TOKEN --force --yes
+npx @guidobuilds/loopback-setup claude-code --token $NEW_TOKEN --force --yes
 ```
 
 ## Uninstall
 
 ```bash
 # Interactive picker — prompts for the agent.
-npx @loopback/setup --remove
+npx @guidobuilds/loopback-setup --remove
 
 # Specific agent.
-npx @loopback/setup --remove claude-code
+npx @guidobuilds/loopback-setup --remove claude-code
 
 # Skip the "Remove loopback from Claude Code?" confirmation.
-npx @loopback/setup --remove claude-code --yes
+npx @guidobuilds/loopback-setup --remove claude-code --yes
 
 # Also delete ~/.loopback/ (credentials + bundled MCP server).
-npx @loopback/setup --remove --all --yes
+npx @guidobuilds/loopback-setup --remove --all --yes
 ```
 
 `--remove` reverses what `install` wrote: it removes the MCP registration from
 the chosen agent's config, deletes the skill directory + command file, and
 prints a summary of what was removed (skipped items are labeled
 `(not installed)` rather than treated as errors). Without `--all`, credentials
-at `~/.loopback/config.json` are kept so a future `npx @loopback/setup` can
+at `~/.loopback/config.json` are kept so a future `npx @guidobuilds/loopback-setup` can
 reuse them.
 
 The remove flow also unconditionally cleans up any legacy
@@ -172,7 +171,7 @@ installer never writes that plugin.
 Re-run the installer and answer `n` to the "Use these credentials?" prompt:
 
 ```bash
-npx @loopback/setup
+npx @guidobuilds/loopback-setup
 # ✓ Found existing credentials for https://loopback.example.com (token: abc1****)
 # ? Use these credentials? (Y/n) n
 # Service URL: https://loopback.example.com
@@ -182,9 +181,9 @@ npx @loopback/setup
 Or override directly with flags (writes without prompting):
 
 ```bash
-npx @loopback/setup --token <new-token>                  # rotate token, keep URL
-npx @loopback/setup --service-url <new-url>              # rotate URL, keep token
-npx @loopback/setup --service-url <new> --token <new>    # rotate both
+npx @guidobuilds/loopback-setup --token <new-token>                  # rotate token, keep URL
+npx @guidobuilds/loopback-setup --service-url <new-url>              # rotate URL, keep token
+npx @guidobuilds/loopback-setup --service-url <new> --token <new>    # rotate both
 ```
 
 Then restart your agent for the new credentials to take effect.

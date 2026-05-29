@@ -5,7 +5,7 @@ the central service in Docker, mint per-user tokens, build + install the client
 into your harness, exercise the loop, and read the stored record back.
 
 > For a plain install (not development), end users run
-> `npx @loopback/setup` — see the [README](README.md). For deep reference
+> `npx @guidobuilds/loopback-setup` — see the [README](README.md). For deep reference
 > (endpoints, MCP tools, installer flags, admin queries, env vars,
 > troubleshooting) see [`docs/`](docs/README.md).
 
@@ -85,14 +85,14 @@ for the full set of filters and examples.
 The installer is **idempotent** and preserves your existing settings — it is
 always safe to re-run.
 
-- **Re-run `npx @loopback/setup <agent>`** when you want to refresh the
+- **Re-run `npx @guidobuilds/loopback-setup <agent>`** when you want to refresh the
   install (e.g. after rebuilding the MCP bundle, or to point at a new
   service URL).
 - **Rotate credentials** by re-running the installer and answering `n` to
   "Use these credentials?", or directly with
-  `npx @loopback/setup --token <new> --service-url <new>`. The MCP server
+  `npx @guidobuilds/loopback-setup --token <new> --service-url <new>`. The MCP server
   picks up the new values from `~/.loopback/config.json` on its next launch.
-- **Uninstall** with `npx @loopback/setup --remove [agent]` (add `--all` to
+- **Uninstall** with `npx @guidobuilds/loopback-setup --remove [agent]` (add `--all` to
   also delete `~/.loopback/`).
 
 ## Teardown

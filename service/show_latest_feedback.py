@@ -71,7 +71,7 @@ def _fetch_latest(con: sqlite3.Connection, limit: int) -> list[sqlite3.Row]:
     # created_at is NOT NULL (server receive time); rowid DESC breaks ties and
     # is the natural fallback for "latest" if created_at ever lacked ordering.
     sql = (
-        "SELECT records.rowid AS _rowid, records.id, records.client_id, "
+        "SELECT records.rowid AS _rowid, records.id, "
         "records.schema_version, records.artifact_kind, records.artifact_id, "
         "records.artifact_version, records.artifact_repo, records.summary, "
         "records.work_type, records.evidence_excerpt, records.timestamp, "

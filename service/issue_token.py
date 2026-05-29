@@ -122,7 +122,6 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  email   : {email}")
     print(f"  is_admin: {'yes' if args.admin else 'no'}")
     print(f"  created : {created_at}")
-    print("Store it in LOOPBACK_TOKEN on the developer's machine (the plugin client reads that var).")
     return 0
 
 

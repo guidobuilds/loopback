@@ -1,5 +1,5 @@
 /**
- * Install flow for `@loopback/setup`.
+ * Install flow for `@guidobuilds/loopback-setup`.
  *
  * Pipeline (kept linear so each step is easy to audit):
  *
@@ -479,7 +479,7 @@ export async function runInstall(args: ParsedArgs): Promise<void> {
 function printSummary(r: InstallReport): void {
   console.log();
   console.log(
-    `${TEXT}✓${RESET} Installed ${BOLD}@loopback/setup${RESET} for ${BOLD}${AGENT_DISPLAY[r.agent]}${RESET}`
+    `${TEXT}✓${RESET} Installed ${BOLD}@guidobuilds/loopback-setup${RESET} for ${BOLD}${AGENT_DISPLAY[r.agent]}${RESET}`
   );
   console.log();
   for (const f of dedupe(r.files)) {

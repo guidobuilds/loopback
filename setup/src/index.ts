@@ -57,12 +57,12 @@ function showHelp(): void {
     // In-agent: skip the ASCII logo but still print the textual usage.
     console.log(`${DIM}The harness-agnostic feedback loop${RESET}`);
     console.log();
-    console.log(`  ${DIM}$${RESET} ${TEXT}npx @loopback/setup <agent>${RESET}`);
-    console.log(`  ${DIM}$${RESET} ${TEXT}npx @loopback/setup --remove${RESET}`);
+    console.log(`  ${DIM}$${RESET} ${TEXT}npx @guidobuilds/loopback-setup <agent>${RESET}`);
+    console.log(`  ${DIM}$${RESET} ${TEXT}npx @guidobuilds/loopback-setup --remove${RESET}`);
     console.log();
   }
 
-  console.log(`${BOLD}Usage:${RESET} npx @loopback/setup [agent] [options]`);
+  console.log(`${BOLD}Usage:${RESET} npx @guidobuilds/loopback-setup [agent] [options]`);
   console.log();
   console.log(`${BOLD}Arguments:${RESET}`);
   console.log(`  agent                 ${DIM}claude-code | opencode | codex${RESET}`);
@@ -78,10 +78,10 @@ function showHelp(): void {
   console.log(`  -v, --version         ${DIM}Show version${RESET}`);
   console.log();
   console.log(`${BOLD}EXAMPLES:${RESET}`);
-  console.log(`  ${DIM}$${RESET} ${TEXT}npx @loopback/setup${RESET}                              ${DIM}# interactive wizard${RESET}`);
-  console.log(`  ${DIM}$${RESET} ${TEXT}npx @loopback/setup claude-code${RESET}                  ${DIM}# install into Claude Code${RESET}`);
-  console.log(`  ${DIM}$${RESET} ${TEXT}npx @loopback/setup claude-code --token T --yes${RESET}  ${DIM}# non-interactive${RESET}`);
-  console.log(`  ${DIM}$${RESET} ${TEXT}npx @loopback/setup --remove claude-code${RESET}         ${DIM}# uninstall${RESET}`);
+  console.log(`  ${DIM}$${RESET} ${TEXT}npx @guidobuilds/loopback-setup${RESET}                              ${DIM}# interactive wizard${RESET}`);
+  console.log(`  ${DIM}$${RESET} ${TEXT}npx @guidobuilds/loopback-setup claude-code${RESET}                  ${DIM}# install into Claude Code${RESET}`);
+  console.log(`  ${DIM}$${RESET} ${TEXT}npx @guidobuilds/loopback-setup claude-code --token T --yes${RESET}  ${DIM}# non-interactive${RESET}`);
+  console.log(`  ${DIM}$${RESET} ${TEXT}npx @guidobuilds/loopback-setup --remove claude-code${RESET}         ${DIM}# uninstall${RESET}`);
   console.log();
   console.log(`Learn more at ${TEXT}https://github.com/guidobuilds/loopback${RESET}`);
   console.log();

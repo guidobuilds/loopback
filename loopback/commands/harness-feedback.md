@@ -5,7 +5,7 @@ argument-hint: <artifact-id> <what the skill got wrong>
 
 # /harness-feedback — manual loopback feedback
 
-Canonical, harness-neutral command (installed by `npx @loopback/setup` into
+Canonical, harness-neutral command (installed by `npx @guidobuilds/loopback-setup` into
 each harness's command directory). Use it when auto-detection missed a real defect, or
 when the user explicitly wants to file feedback: "the prd-writer skill botched
 this — file it." Runs the **same** flow as the feedback-detector skill and **never
