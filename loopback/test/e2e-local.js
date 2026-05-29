@@ -49,7 +49,7 @@ const core = require('../core');
   const out = JSON.parse(res.content[0].text);
   console.log('submit:', JSON.stringify(out));
   assert.strictEqual(out.status, 'ok', 'submit should succeed');
-  assert.ok(String(out.id).startsWith('fb_srv_'), 'server-assigned id');
+  assert.ok(String(out.id).startsWith('fb_'), 'server-assigned id');
   await client.close();
 
   const r = await fetch(READ, { headers: { authorization: 'Bearer ' + ADMIN } });
@@ -60,14 +60,17 @@ const core = require('../core');
   console.log('stored client:', JSON.stringify(rec.client), 'excerpt:', JSON.stringify(rec.evidenceExcerpt));
 
   assert.strictEqual(rec.client.harness, 'claude-code', 'client.harness round-trips through SQLite');
-  assert.strictEqual(rec.client.plugin, 'loopback@0.0.1', 'client.plugin round-trips');
+  assert.strictEqual(rec.client.plugin, `loopback@${require('../package.json').version}`, 'client.plugin round-trips');
   assert.ok(
     !/jane@example\.com/.test(rec.evidenceExcerpt) && !/\/Users\//.test(rec.evidenceExcerpt),
     'server stored a redacted excerpt: ' + rec.evidenceExcerpt
   );
 
+  // `id` (server-assigned) and `submitterEmail` live outside the ingest wire
+  // contract; pop both before re-validating the stored record against the schema.
   const copy = Object.assign({}, rec);
-  delete copy.serverId;
+  delete copy.id;
+  delete copy.submitterEmail;
   assert.ok(core.wire.validateRecord(copy), 'stored record schema-valid: ' + JSON.stringify(core.wire.validateRecord.errors));
 
   console.log('\nLOCAL SERVICE E2E OK — MCP -> FastAPI -> SQLite -> admin read-back; harness round-trips, excerpt redacted.');

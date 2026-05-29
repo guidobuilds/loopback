@@ -18,14 +18,14 @@ tools through the same wire contract.
 ## Install
 
 This package is **not installed directly** by developers. Use the
-[`@loopback/setup`](../setup/) installer:
+[`@guidobuilds/loopback-setup`](../setup/) installer:
 
 ```bash
 # Interactive: prompts for the agent + the service URL + the token.
-npx @loopback/setup
+npx @guidobuilds/loopback-setup
 
 # Non-interactive: pick the agent, pass credentials, skip prompts.
-npx @loopback/setup claude-code --service-url <url> --token <tok> --yes
+npx @guidobuilds/loopback-setup claude-code --service-url <url> --token <tok> --yes
 ```
 
 The installer extracts the bundled MCP server to `~/.loopback/mcp/`, writes
@@ -46,7 +46,7 @@ loopback/                              # npm package `loopback`
 │   └── feedback-record.schema.json    # single source-of-truth wire contract
 ├── mcp/
 │   ├── index.js                       # MCP server source (six tools, stdio transport)
-│   └── server.bundle.js               # prebuilt, dependency-free bundle (what `@loopback/setup` ships)
+│   └── server.bundle.js               # prebuilt, dependency-free bundle (what `@guidobuilds/loopback-setup` ships)
 ├── skills/feedback-detector/          # one portable detector skill (copied into each harness)
 └── commands/harness-feedback.md       # slash command (copied into each harness)
 ```
@@ -75,7 +75,7 @@ See [`../docs/mcp.md`](../docs/mcp.md) for inputs / outputs / registration.
 ## Credentials
 
 Credentials live in a single file: `~/.loopback/config.json` (mode `0600`).
-Only `@loopback/setup` writes to it. The MCP server reads from it at submit
+Only `@guidobuilds/loopback-setup` writes to it. The MCP server reads from it at submit
 time. `LOOPBACK_SERVICE_URL` / `LOOPBACK_TOKEN` env vars act as per-session
 overrides (useful for CI / scripts).
 
@@ -83,13 +83,13 @@ Rotate by re-running the installer and answering `n` to the
 "Use these credentials?" prompt:
 
 ```bash
-npx @loopback/setup
+npx @guidobuilds/loopback-setup
 ```
 
 or override directly with flags:
 
 ```bash
-npx @loopback/setup --service-url <new> --token <new>
+npx @guidobuilds/loopback-setup --service-url <new> --token <new>
 ```
 
 The service URL is the **base** (no `/feedback`); MCP derives endpoint paths

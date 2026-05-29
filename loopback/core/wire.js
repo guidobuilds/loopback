@@ -16,8 +16,6 @@
  * stay single-purpose and only know how to POST/GET a final URL).
  */
 
-const crypto = require('crypto');
-
 const Ajv2020 = require('ajv/dist/2020');
 const addFormats = require('ajv-formats');
 
@@ -32,23 +30,17 @@ const ajv = new Ajv2020({ allErrors: true, strict: false });
 addFormats(ajv);
 const validateRecord = ajv.compile(schema);
 
-function newRecordId() {
-  // The central DB assigns the canonical primary key; the client supplies a
-  // syntactically valid placeholder so the record satisfies the schema pre-send.
-  const rand = crypto.randomBytes(13).toString('hex').toUpperCase();
-  return 'fb_' + rand;
-}
-
-// Build a wire record from the post-consent tool args. id/client/timestamp are
-// stamped here, not supplied by the caller. summary + excerpt are defensively
-// re-redacted (show-exactly-what-is-sent + defense in depth). The submitter's
-// identity is resolved SERVER-SIDE from the auth token, not carried on the wire.
+// Build a wire record from the post-consent tool args. client/timestamp are
+// stamped here, not supplied by the caller. The record carries NO id: the
+// server assigns the canonical id ('fb_<uuid>') on ingest and returns it.
+// summary + excerpt are defensively re-redacted (show-exactly-what-is-sent +
+// defense in depth). The submitter's identity is resolved SERVER-SIDE from the
+// auth token, not carried on the wire.
 function assembleRecord(args, opts) {
   opts = opts || {};
   const version = opts.pluginVersion || '0.0.1';
 
   const record = {
-    id: newRecordId(),
     schemaVersion: 1,
     artifact: { kind: args.artifactKind },
     summary: redactMaybe(args.summary),
@@ -153,4 +145,4 @@ function endpoint(serviceUrl, path) {
   return base + suffix;
 }
 
-module.exports = { schema, validateRecord, assembleRecord, postRecord, fetchRecords, newRecordId, endpoint };
+module.exports = { schema, validateRecord, assembleRecord, postRecord, fetchRecords, endpoint };

@@ -21,7 +21,7 @@ function textOf(r) {
     req.on('end', () => {
       received = JSON.parse(b || '{}');
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ status: 'stored', id: 'fb_srv_test', issueUrl: 'http://issue/1' }));
+      res.end(JSON.stringify({ status: 'stored', id: 'fb_test', issueUrl: 'http://issue/1' }));
     });
   });
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
@@ -86,9 +86,10 @@ function textOf(r) {
   );
   console.log('submit_feedback:', JSON.stringify(sf));
   assert.strictEqual(sf.status, 'ok');
-  assert.strictEqual(sf.id, 'fb_srv_test');
+  assert.strictEqual(sf.id, 'fb_test');  // server-assigned id, echoed back
+  assert.ok(!('id' in received), 'client must not send an id (server assigns it)');
   assert.strictEqual(received.client.harness, 'codex');
-  assert.strictEqual(received.client.plugin, 'loopback@0.0.1');
+  assert.strictEqual(received.client.plugin, `loopback@${require('../package.json').version}`);
   assert.ok(!/\/Users\//.test(received.evidenceExcerpt), 'excerpt must be redacted server-side: ' + received.evidenceExcerpt);
   assert.ok(!('anonUserId' in received), 'anonUserId must not be on the wire (identity is server-side)');
   console.log('server received client:', JSON.stringify(received.client), 'excerpt:', JSON.stringify(received.evidenceExcerpt));

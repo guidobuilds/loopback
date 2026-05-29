@@ -60,13 +60,13 @@ export function showBanner(): void {
   console.log(`${DIM}The harness-agnostic feedback loop${RESET}`);
   console.log();
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx @loopback/setup ${DIM}<agent>${RESET}        ${DIM}Install loopback into an agent${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}npx @guidobuilds/loopback-setup ${DIM}<agent>${RESET}        ${DIM}Install loopback into an agent${RESET}`
   );
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx @loopback/setup --remove${RESET}     ${DIM}Uninstall loopback${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}npx @guidobuilds/loopback-setup --remove${RESET}     ${DIM}Uninstall loopback${RESET}`
   );
   console.log();
-  console.log(`${DIM}try:${RESET} npx @loopback/setup claude-code`);
+  console.log(`${DIM}try:${RESET} npx @guidobuilds/loopback-setup claude-code`);
   console.log();
   console.log(`Learn more at ${TEXT}https://github.com/guidobuilds/loopback${RESET}`);
   console.log();

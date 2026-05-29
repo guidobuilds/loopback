@@ -216,6 +216,8 @@ section('assembleRecord redacts + stamps harness and validates', () => {
   assert.ok(core.wire.validateRecord(rec), JSON.stringify(core.wire.validateRecord.errors));
   assert.strictEqual(rec.client.harness, 'opencode');
   assert.ok(!/\/Users\//.test(rec.evidenceExcerpt));
+  // The record carries no id: the server assigns the canonical id on ingest.
+  assert.ok(!('id' in rec), 'client must not stamp an id');
   // Identity is resolved server-side from the auth token; no anonUserId on the wire.
   assert.ok(!('anonUserId' in rec), 'anonUserId must not be stamped');
 });

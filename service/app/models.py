@@ -63,7 +63,9 @@ class FeedbackRecord(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    id: str = Field(min_length=1, description="Client-supplied record id.")
+    # No client-supplied id: the server assigns the canonical id ('fb_<uuid>')
+    # on ingest and returns it (see FeedbackResponse). `extra="forbid"` means a
+    # client that still sends `id` is rejected (400), matching the JSON Schema.
     schemaVersion: int
     artifact: Artifact
     summary: str = Field(min_length=1)

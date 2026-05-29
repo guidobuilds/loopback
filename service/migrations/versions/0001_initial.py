@@ -53,7 +53,6 @@ def upgrade() -> None:
     op.create_table(
         "records",
         sa.Column("id", sa.Text(), nullable=False),
-        sa.Column("client_id", sa.Text(), nullable=True),
         sa.Column("schema_version", sa.Integer(), nullable=False),
         sa.Column("artifact_kind", sa.Text(), nullable=False),
         sa.Column("artifact_id", sa.Text(), nullable=True),

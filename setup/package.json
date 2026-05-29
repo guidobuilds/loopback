@@ -1,6 +1,6 @@
 {
-  "name": "@loopback/setup",
-  "version": "0.0.1",
+  "name": "@guidobuilds/loopback-setup",
+  "version": "0.1.0",
   "description": "Ephemeral installer for loopback — wires the MCP server, skill, and command into your AI coding agent (Claude Code, OpenCode, Codex). One-shot via `npx`; no persistent CLI.",
   "type": "module",
   "bin": {
