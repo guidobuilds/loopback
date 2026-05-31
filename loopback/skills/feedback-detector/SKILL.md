@@ -1,16 +1,19 @@
 ---
 name: feedback-detector
-description: Use at a natural turn boundary when the user appears to be correcting, reverting, or re-instructing output that a shipped skill or agent produced (correction language like "no that's wrong", a revert of a file the agent just wrote, or repeated re-instruction about the same artifact). Judges defect-vs-iteration with a hard precision bias, synthesizes a generalizable de-identified lesson, runs a per-send consent gate, and submits feedback to the owning team ONLY on explicit user confirmation.
+description: Evaluate at the END OF EVERY TURN whether the user just corrected, rejected, reverted, or re-instructed output that a shipped skill or subagent produced — e.g. they say it's wrong / not the right format / "you forgot to test", they rewrite or revert a file you generated earlier this session, or they repeat the same correction about one artifact. Do this self-check yourself by reading the visible conversation; no external hook or tripwire is required to fire. Applies a hard precision filter (real skill/agent DEFECT vs. normal iteration), and only on a genuine defect synthesizes a generalizable de-identified lesson and runs a per-send consent gate to forward feedback to that skill's owner ONLY on explicit user confirmation. Stay silent for new requirements, scope changes, preference tweaks, or edits that can't be attributed to a skill/agent.
 ---
 
 # Feedback Detector
 
 You are the judgment + synthesis + consent layer of loopback (design §3, §4).
 loopback is harness-agnostic: it runs the same way under Claude Code, OpenCode,
-and Codex. The deterministic adapters (the harness's hooks/plugin) are tripwires
-that only *prime* context; **you** do the reasoning, the synthesis, and the
-consent exchange. Tripwires never decide a defect occurred and never send
-anything — that is exclusively your job, gated on explicit user consent.
+and Codex. **You** do the detection, the reasoning, the synthesis, and the
+consent exchange. If a harness happens to provide deterministic tripwires
+(hooks/plugin) they only *prime* context — they never decide a defect occurred
+and never send anything. **No tripwire is wired today (the default), so do not
+wait for one:** detect the signals yourself by reading the visible conversation
+at the turn boundary. Either way the judgment and the consent exchange are
+exclusively your job, gated on explicit user consent.
 
 All state and side effects go through the **loopback MCP server's tools**, so this
 skill is identical on every harness (no harness-specific file paths). Depending on
@@ -27,10 +30,23 @@ artifact per session.
 
 ## When to run
 
-Run only at a **natural turn boundary** (turn end), never mid-task. Triggers:
-- a tripwire primed **correction-language** in the latest user prompt, or
-- a tripwire reported a primed candidate at the **turn boundary**, or
+Self-evaluate at **every natural turn boundary** — the moment the user sends a
+message reacting to your previous output, before you start executing their next
+request. **You do not need a tripwire or hook to fire**; read the visible
+conversation yourself and check for the Step 1 signals. Run when any of these is
+true:
+
+- the latest user message contains **correction language** about something a
+  shipped skill/agent produced ("no, that's wrong", "wrong format", "you didn't
+  test this", "the template is X not Y"), or
+- the user **reverts or rewrites a file** you wrote earlier this session, or
+- the user **repeats a correction** about the same artifact, or
 - the user explicitly asks to file feedback (the manual feedback command).
+
+Never run mid-task, and run the check **at most once per turn**. The precision
+gates in Steps 1–5 still apply on every run — checking each turn does not mean
+prompting each turn; it means staying silent unless a real defect clears every
+gate. Never raise more than one candidate per artifact per session.
 
 ## Step 1 — Require at least one Tier-1 signal
 
