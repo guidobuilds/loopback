@@ -1,0 +1,9 @@
+{
+  "id": "PREC-08",
+  "dimension": "precision",
+  "title": "de-bounce (gate already raised for this artifact this session)",
+  "expect": "silent",
+  "rationale": "A genuine defect, but the detector ALREADY surfaced a consent gate for this same artifact earlier this session. Step 4 says raise at most one candidate per artifact per session: fold new evidence into severity, do not prompt again -> stay silent (no second gate).",
+  "assertions": { "forbidden": [], "required": [] },
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- Earlier this session the feedback-detector ALREADY rendered a consent gate for the `prd-writer` skill about its wrong-template defect, and the user responded to it.\n- This turn the user makes another correction about the SAME `prd-writer` artifact and the same wrong-template problem.\n- The UserPromptSubmit primer flagged correction language in the user's latest message.\n\nThe user's latest message at this turn boundary is:\n\"Still the wrong template here too — same Problem/Solution/Metrics issue as before.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates. Per the one-candidate-per-artifact-per-session de-bounce rule, do NOT raise a second gate; fold the evidence into severity instead. Do not ask me clarifying questions first; act on the primed turn state."
+}

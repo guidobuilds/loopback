@@ -1,0 +1,9 @@
+{
+  "id": "PREC-09",
+  "dimension": "precision",
+  "title": "iteration, scope pivot (new direction, not a repair)",
+  "expect": "silent",
+  "rationale": "The user changes direction ('actually, let's do it as a CLI instead of a web form') — a scope change to a new approach, not a contradiction that the prior output was defective. Scope changes are iteration -> stay silent.",
+  "assertions": { "forbidden": [], "required": [] },
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- PostToolUse recorded that the `scaffold-writer` skill (an identifiable active skill for this turn) scaffolded a small web form this turn, which works as built.\n\nThe user's latest message at this turn boundary is:\n\"Actually, let's do this as a CLI instead of a web form — change of plan.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates. This is a change of direction (scope pivot), not a repair of a defect. Do not ask me clarifying questions first; act on the primed turn state."
+}

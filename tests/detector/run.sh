@@ -1,136 +1,43 @@
 #!/usr/bin/env bash
-# C1 — Detector precision scenario suite (design §3, plan Group C / C1).
+# Feedback-detector performance suite — entrypoint.
 #
-# Drives the loopback plugin's feedback-detector skill (A7) through 4
-# synthetic scenarios and asserts the precision contract:
+# This is a thin wrapper around the scale runner+grader in `eval.py`. It exists
+# so the historical `bash tests/detector/run.sh` entrypoint keeps working and
+# preserves the same exit-code contract:
 #
-#   TP1  defect, explicit correction   -> consent gate RAISED   (marker present)
-#   TP2  defect, same-file revert       -> consent gate RAISED   (marker present)
-#   FP1  iteration, new requirement     -> SILENT                (marker absent)
-#   FP2  unattributable                 -> SILENT                (marker absent)
+#   0  every scenario matched its expectation (the contract holds)
+#   1  at least one scenario FAILED (a performance regression)
+#   2  the nested-claude path is unavailable here (cannot judge — reported honestly)
 #
-# The consent-gate marker is the distinctive sentinel token the SKILL.md emits as
-# the gate's first line ONLY when the gate is actually rendered to the user:
-#   HFB-CONSENT-GATE-v1
-# (a unique token avoids false matches when the detector merely quotes the
-# human-readable gate phrase while explaining why it is staying silent).
+# The suite drives the *real* shipped `feedback-detector` SKILL.md through a
+# corpus of synthetic turn-boundary scenarios under scenarios/{precision,recall,
+# redaction}/ and grades the model's output along three dimensions:
 #
-# Each scenario is a fixture under scenarios/*.json with: id, expect (gate|silent),
-# and a self-contained `prompt` (a synthetic transcript + primed turn state
-# instructing the model to apply the detector skill at the turn boundary).
+#   precision  must stay SILENT on iteration / scope / preference / ambiguous /
+#              unattributable / Tier-2-only corrections (the prime directive)
+#   recall     must RAISE the consent gate on a genuine, attributable defect
+#   redaction  must raise the gate AND scrub PII / secrets / paths from the
+#              excerpt before showing it (show-exactly-what-is-sent)
 #
-# This suite is MODEL-DRIVEN: it actually runs a nested `claude` against the
-# plugin and inspects real output. It does NOT pattern-match a canned answer.
-# If the nested-claude path is unavailable/unreliable in this environment, the
-# runner exits 2 (ENV-UNAVAILABLE) and reports honestly, rather than faking PASS.
+# The skill is loaded into the nested `claude` via --append-system-prompt, so no
+# loopback install / MCP registration is required: the scenarios stop at the
+# consent-gate render and never call submit_feedback.
 #
-# Exit codes:
-#   0  all 5 scenarios matched their expectation (precision contract holds)
-#   1  at least one scenario FAILED (precision regression — release blocker)
-#   2  the nested-claude path is unavailable in this environment (cannot judge)
+# All flags pass straight through to eval.py, e.g.:
+#   bash tests/detector/run.sh --dimension redaction
+#   bash tests/detector/run.sh --jobs 8 --json /tmp/grading.json
+#   bash tests/detector/run.sh --id REC-01
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-REPO="$(cd "${HERE}/../.." && pwd)"
-PLUGIN="${PLUGIN:-${REPO}/loopback}"
-SCEN_DIR="${HERE}/scenarios"
-MARKER="HFB-CONSENT-GATE-v1"
 
-# Per-scenario wall-clock budget (seconds). A real model turn takes a while;
-# keep generous but bounded. Override with SCENARIO_TIMEOUT=<sec>.
-SCENARIO_TIMEOUT="${SCENARIO_TIMEOUT:-300}"
-
-# --- preconditions -----------------------------------------------------------
 command -v claude >/dev/null 2>&1 || {
   echo "ENV-UNAVAILABLE: 'claude' CLI not found on PATH; cannot drive the model-driven suite." >&2
   exit 2
 }
-command -v jq >/dev/null 2>&1 || {
-  echo "ENV-UNAVAILABLE: 'jq' not found; cannot parse scenario fixtures." >&2
+command -v python3 >/dev/null 2>&1 || {
+  echo "ENV-UNAVAILABLE: 'python3' not found; cannot run the eval harness." >&2
   exit 2
 }
-claude mcp get loopback >/dev/null 2>&1 || {
-  echo "ENV-UNAVAILABLE: loopback is not installed in Claude Code. Run" >&2
-  echo "  npx @guidobuilds/loopback-setup claude-code --service-url <url> --token <tok> --yes" >&2
-  echo "first to register the remote loopback MCP." >&2
-  exit 2
-}
-[ -d "${SCEN_DIR}" ] || { echo "FAIL: scenarios dir missing: ${SCEN_DIR}" >&2; exit 1; }
 
-# Run a prompt against the skill via nested claude. stdin is redirected from
-# /dev/null so claude does not stall waiting on a piped-but-empty stdin. The
-# loopback MCP is a REMOTE endpoint (claude connects to it over HTTP using the
-# registered bearer header); there is no local per-scenario state to isolate.
-# Combined out+err.
-drive() {
-  local data_dir="$1" prompt="$2"
-  claude -p "${prompt}" </dev/null 2>&1
-}
-
-# --- self-probe: is nested-claude usable here at all? ------------------------
-# A cheap deterministic probe. If even this produces no usable output, the
-# environment cannot run the suite and we must say so (not fake results).
-PROBE_DATA="$(mktemp -d)"
-PROBE_OUT="$(drive "${PROBE_DATA}" "Reply with exactly the token DETECTOR_SUITE_PROBE_OK and nothing else.")"
-rm -rf "${PROBE_DATA}" 2>/dev/null || true
-if ! printf '%s' "${PROBE_OUT}" | grep -q "DETECTOR_SUITE_PROBE_OK"; then
-  echo "ENV-UNAVAILABLE: nested 'claude -p' did not return usable output in this environment." >&2
-  echo "  probe output (first 5 lines):" >&2
-  printf '%s\n' "${PROBE_OUT}" | head -5 | sed 's/^/    /' >&2
-  echo "  -> Run this suite on a host/interactive session where nested claude executes plugin skills." >&2
-  exit 2
-fi
-
-# --- run scenarios -----------------------------------------------------------
-pass=0 fail=0 total=0
-declare -a results=()
-
-for f in "${SCEN_DIR}"/*.json; do
-  [ -e "$f" ] || continue
-  total=$((total + 1))
-
-  id="$(jq -r '.id' "$f")"
-  title="$(jq -r '.title // ""' "$f")"
-  expect="$(jq -r '.expect' "$f")"          # gate | silent
-  prompt="$(jq -r '.prompt' "$f")"
-
-  # Fresh, isolated per-scenario state dir.
-  data_dir="$(mktemp -d)"
-
-  out="$(drive "${data_dir}" "${prompt}")"
-  rm -rf "${data_dir}" 2>/dev/null || true
-
-  # Did the consent-gate sentinel appear? (fixed-string, case-sensitive exact
-  # substring — only emitted when the gate is truly rendered).
-  if printf '%s' "${out}" | grep -qF "${MARKER}"; then
-    observed="gate"
-  else
-    observed="silent"
-  fi
-
-  if [ "${observed}" = "${expect}" ]; then
-    verdict="PASS"; pass=$((pass + 1))
-  else
-    verdict="FAIL"; fail=$((fail + 1))
-  fi
-
-  printf '%-5s %-4s expect=%-7s observed=%-7s  %s\n' \
-    "[$id]" "${verdict}" "${expect}" "${observed}" "${title}"
-  results+=("$id ${verdict} (expect=${expect} observed=${observed})")
-
-  # On FAIL, surface a short evidence excerpt for debugging.
-  if [ "${verdict}" = "FAIL" ]; then
-    echo "      --- output excerpt (last 12 lines) ---" >&2
-    printf '%s\n' "${out}" | tail -12 | sed 's/^/      /' >&2
-    echo "      --------------------------------------" >&2
-  fi
-done
-
-echo "----------------------------------------------------------------"
-echo "detector precision suite: ${pass}/${total} passed, ${fail} failed"
-
-if [ "${total}" -ne 4 ]; then
-  echo "WARN: expected 4 scenarios, found ${total}." >&2
-fi
-
-[ "${fail}" -eq 0 ] && [ "${total}" -ge 4 ]
+exec python3 "${HERE}/eval.py" "$@"

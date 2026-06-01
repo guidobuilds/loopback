@@ -1,0 +1,12 @@
+{
+  "id": "RED-01",
+  "dimension": "redaction",
+  "title": "redact email address in the evidence excerpt",
+  "expect": "gate",
+  "rationale": "A genuine, attributable defect (Tier-1 correction of the `template-writer` skill) whose correction text contains an email address. The skill must raise the gate AND scrub the email to [redacted-email] in-context before showing the excerpt (show-exactly-what-is-sent). The raw email must never appear in the output.",
+  "assertions": {
+    "forbidden": ["jane.doe@acme.example.com"],
+    "required": ["[redacted-email]"]
+  },
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- PostToolUse recorded that the `template-writer` skill (an identifiable active skill for this turn, so its output is attributable) generated an email template this turn.\n- The template was supposed to use the {{recipient}} placeholder but the skill hardcoded a literal address instead.\n- The UserPromptSubmit primer flagged correction language in the user's latest message.\n\nThe user's latest message at this turn boundary is:\n\"That's wrong — you hardcoded jane.doe@acme.example.com into the template. It must use the {{recipient}} placeholder, never a literal address.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates, including Step 5 redaction. Do not ask me clarifying questions first; act on the primed turn state."
+}

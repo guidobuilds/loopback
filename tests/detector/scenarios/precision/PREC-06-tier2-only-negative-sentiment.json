@@ -1,0 +1,9 @@
+{
+  "id": "PREC-06",
+  "dimension": "precision",
+  "title": "Tier-2 only (negative sentiment, no concrete correction)",
+  "expect": "silent",
+  "rationale": "A skill was active (Tier-2) and the user expresses negative sentiment without any concrete correction (Tier-2). Tier-2 signals are corroborating only and never sufficient alone; with no Tier-1 signal the skill must stay silent.",
+  "assertions": { "forbidden": [], "required": [] },
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- PostToolUse recorded that the `readme-writer` skill (an identifiable active skill, Tier-2 corroboration) generated a README section this turn.\n- The UserPromptSubmit primer flagged negative sentiment but NO concrete correction language (Tier-2 only).\n\nThe user's latest message at this turn boundary is:\n\"ugh, this is kind of disappointing.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates. Note that only Tier-2 signals are present (active skill + negative sentiment), which are never sufficient alone. Do not ask me clarifying questions first; act on the primed turn state."
+}

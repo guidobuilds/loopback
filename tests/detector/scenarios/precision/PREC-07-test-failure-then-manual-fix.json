@@ -1,0 +1,9 @@
+{
+  "id": "PREC-07",
+  "dimension": "precision",
+  "title": "Tier-2 only (test failed then user manually fixed, no correction)",
+  "expect": "silent",
+  "rationale": "A validation/test failure right after skill output followed by a manual fix is a Tier-2 corroborating signal only — there is no Tier-1 correction language and no same-file revert of the skill's own output framed as a repair. Tier-2 alone is never sufficient -> stay silent.",
+  "assertions": { "forbidden": [], "required": [] },
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- PostToolUse recorded that the `endpoint-writer` skill (an identifiable active skill, Tier-2 corroboration) added a handler this turn.\n- A test run afterward reported one failing test, and the user then quietly edited an unrelated fixture file to make it pass.\n- The UserPromptSubmit primer flagged NO correction language; the user said nothing about the skill's output being wrong.\n\nThe user's latest message at this turn boundary is:\n\"ok the suite is green now, let's move on.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates. A test-failure-then-manual-fix is Tier-2 only; with no Tier-1 signal, stay silent. Do not ask me clarifying questions first; act on the primed turn state."
+}
