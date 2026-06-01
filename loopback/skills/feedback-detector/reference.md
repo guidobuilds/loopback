@@ -39,18 +39,19 @@ candidate by itself.
 1. **>=1 Tier-1 signal?** No → silent.
 2. **Defect (not iteration)?** Iteration/ambiguous → silent.
 3. **Attributable?** No active skill/agent can be identified as the producer → silent.
-4. **Not muted?** the `is_muted` tool returns `muted: true` → silent.
-5. **Not already raised for this artifact this session?** Already raised → fold into
+4. **Not already raised for this artifact this session?** Already raised → fold into
    severity, do not re-prompt.
 
-Only a candidate that clears all five reaches the consent gate.
+Only a candidate that clears all four reaches the consent gate.
 
 ## Privacy invariants
 
-- The redacted excerpt shown in the gate is **byte-for-byte** what is sent
-  (show-exactly-what-is-sent).
-- `submit_feedback` re-redacts defensively, so even an edited excerpt is cleaned
-  again before transmission.
-- No client-side user identifier is carried on the wire; the submitter is
-  resolved server-side from the auth token (`records.user_id`), and no PII ever
-  leaves the machine.
+- The excerpt you redact **in context** and show in the gate is **byte-for-byte**
+  what is sent (show-exactly-what-is-sent); the raw excerpt never leaves the machine.
+- The service re-checks redaction on receipt as a safety net: if a PII/secret
+  pattern slipped through, the record is **quarantined** (not stored) and
+  `submit_feedback` returns `status: "quarantined"` with the offending `patterns`
+  so you can re-redact and retry once.
+- No client-side user identifier is carried on the wire; the submitter is resolved
+  server-side from the auth token (`records.user_id`), and no PII ever leaves the
+  machine.

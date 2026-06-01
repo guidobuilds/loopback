@@ -9,9 +9,10 @@ no registry, owner resolution, dedup/clustering, or issue fan-out.
 - **Stack:** Python + FastAPI; **SQLAlchemy 2.0** + **Alembic** over SQLite;
   per-user hashed-token bearer auth; Docker.
 - **Port:** `8080`.
-- **Wire contract:** `service/feedback-record.schema.json` (kept identical to the
-  client's `loopback/core/feedback-record.schema.json`, verified by
-  `service/tests/test_contract.py`).
+- **Wire contract:** `service/feedback-record.schema.json` (verified against the
+  Pydantic models by `service/tests/test_contract.py`).
+- **MCP:** the loopback MCP is now **hosted here** at `/mcp` (remote, bearer-auth,
+  one tool); see [mcp.md](mcp.md).
 
 ## Run the service
 
@@ -56,6 +57,7 @@ Locally `DB_PATH` defaults to `/tmp/loopback.db`.
 | GET    | `/healthz`  | none                | Liveness. Returns `200` with `{"status":"ok"}`. |
 | POST   | `/feedback` | any valid token     | Ingest: auth → validate → re-redact → **store**. |
 | GET    | `/feedback` | **admin token only**| Lists stored records ("review all feedback received") with pagination + filters (below). |
+| POST/GET | `/mcp`    | any valid token (bearer header) | The hosted loopback **MCP** (Streamable HTTP). One tool, `submit_feedback`, sharing the same `ingest_record` core as `POST /feedback`. See [mcp.md](mcp.md). |
 
 ### `POST /feedback` status contract
 

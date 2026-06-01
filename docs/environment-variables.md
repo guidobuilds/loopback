@@ -1,9 +1,13 @@
 # Environment variables
 
-loopback uses no `.env` files. Every variable below is read directly from the
-process environment. Client credentials are normally persisted by
-`@guidobuilds/loopback-setup` to `~/.loopback/config.json` (so you rarely export them by
-hand); env vars act as per-session overrides when set.
+loopback uses no `.env` files. The few variables below are read directly from the
+process environment.
+
+**Client credentials are not environment variables.** The service URL + token are
+passed to `@guidobuilds/loopback-setup` as flags (or reused from
+`~/.loopback/config.json`) and written into each harness's remote-MCP
+registration as an `Authorization: Bearer` header. The hosted MCP authenticates
+from that header — there is no client process reading `LOOPBACK_*` at runtime.
 
 ## Service
 
@@ -14,59 +18,23 @@ hand); env vars act as per-session overrides when set.
 There is **no server token env var** — auth is per-user hashed tokens stored in
 the DB. See [service.md](service.md#auth-model-per-user-hashed-tokens).
 
-## Client (MCP)
+## Installer (agent detection / cosmetics)
 
-| Name | Required | Default | Controls | Read by |
-|------|----------|---------|----------|---------|
-| `LOOPBACK_SERVICE_URL` | only as env override | persisted by `@guidobuilds/loopback-setup` | The **base** service URL (no `/feedback`). Endpoint paths (`/feedback`, etc.) are derived per call by `core.wire.endpoint()`. | MCP `submit_feedback` |
-| `LOOPBACK_TOKEN` | only as env override | persisted by `@guidobuilds/loopback-setup` | Per-user bearer token (admin token required to read `GET /feedback`). | MCP `submit_feedback` |
-| `LOOPBACK_DATA_DIR` | no | resolved (see below) | Explicit override for the per-machine state dir. | `loopback/core/data-dir.js` |
-| `LOOPBACK_HARNESS` | no | auto-detected | Override the detected harness label (`client.harness`). Undocumented escape hatch; never written into config. | `loopback/core/data-dir.js` |
+Consulted only by `@guidobuilds/loopback-setup` to pre-select the detected agent
+and to suppress the ASCII logo when it runs inside an agent. None are required.
 
-An env value that is empty or an unsubstituted template (contains `${`) is
-treated as **unset**.
+| Name | Controls |
+|------|----------|
+| `AI_AGENT` | loopback's canonical "running inside an agent" signal (format `<harness>_<version>_<mode>`, e.g. `claude-code_2-1-150_agent`); suppresses the installer logo. |
+| `CLAUDECODE` / `CLAUDE_CODE` | Claude Code fingerprint. |
+| `OPENCODE` / `OPENCODE_HARNESS` | OpenCode fingerprint. |
+| `CODEX` | Codex fingerprint. |
 
-## Detection / other
+All read by `setup/src/detect-agent.ts` (a non-empty value on any one is enough).
 
-| Name | Required | Default | Controls | Read by |
-|------|----------|---------|----------|---------|
-| `AI_AGENT` | no | — | Primary harness-detection input (format `<harness>_<version>_<mode>`, e.g. `claude-code_2-1-150_agent`); also yields the harness version. Also used by `@guidobuilds/loopback-setup` to suppress the ASCII logo when run inside an agent. | `loopback/core/data-dir.js`, `setup/src/detect-agent.ts` |
-| `CLAUDECODE` / `CLAUDE_CODE` | no | — | Claude Code marker. Harness-detection fallback when `AI_AGENT` is absent; also suppresses the installer logo. | `loopback/core/data-dir.js`, `setup/src/detect-agent.ts` |
-| `OPENCODE` / `OPENCODE_HARNESS` | no | — | OpenCode marker. Used by `@guidobuilds/loopback-setup` to suppress the installer logo when run inside OpenCode. | `setup/src/detect-agent.ts` |
-| `CODEX` / `CODEX_SANDBOX` / `CODEX_HOME` | no | — | Codex markers. Used for harness detection (`CODEX_SANDBOX` / `CODEX_HOME`) and to suppress the installer logo (`CODEX`). | `loopback/core/data-dir.js`, `setup/src/detect-agent.ts` |
-| `USER` | no | — | Username added to the redaction pattern set (so the operator's username is scrubbed from excerpts). | `loopback/core/redact.js` |
-
-Harness-specific fallbacks are also consulted when `AI_AGENT` is absent:
-`CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` / `CLAUDE_PLUGIN_ROOT` /
-`CLAUDE_PLUGIN_DATA` → `claude-code`; `CODEX_SANDBOX` / `CODEX_HOME` → `codex`.
-
-## Test-only
-
-| Name | Required | Default | Controls | Read by |
-|------|----------|---------|----------|---------|
-| `LOOPBACK_MCP_ENTRY` | no | `loopback/mcp/index.js` | Points the MCP smoke test at a specific server entry (e.g. the bundle). | `loopback/test/mcp-smoke.js` |
-
-## Data dir resolution chain
-
-First usable value wins (`loopback/core/data-dir.js`):
-
-1. `LOOPBACK_DATA_DIR`
-2. `CLAUDE_PLUGIN_DATA` (Claude Code, when substituted)
-3. `~/.claude/plugins/data/loopback` (when `CLAUDE_PLUGIN_ROOT` is set but the
-   data var was not substituted)
-4. `$XDG_DATA_HOME/loopback`
-5. `~/.local/share/loopback`
-
-## Harness detection chain
-
-First match wins (`client.harness`; `loopback/core/data-dir.js`):
-
-1. `LOOPBACK_HARNESS` (explicit override)
-2. `AI_AGENT` prefix → `claude-code` / `opencode` / `codex`
-3. `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` / `CLAUDE_PLUGIN_ROOT` /
-   `CLAUDE_PLUGIN_DATA` → `claude-code`
-4. `CODEX_SANDBOX` / `CODEX_HOME` → `codex`
-5. otherwise undefined (the field is omitted rather than mislabeled)
+> The harness label stamped on a record (`client.harness`) is no longer derived
+> from the environment: the detector skill passes the `harness` argument to
+> `submit_feedback` directly (it knows which harness it is running under).
 
 ---
 

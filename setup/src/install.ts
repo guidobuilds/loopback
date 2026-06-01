@@ -8,10 +8,11 @@
  *   3. Detect a pre-existing install of loopback into the chosen agent.
  *      If complete, ask `Reinstall? (y/N)`. `--force` skips the prompt.
  *   4. Run the idempotent install steps:
- *        a. Extract the MCP server bundle to ~/.loopback/mcp/.
- *        b. Write ~/.loopback/config.json (mode 0600) if credentials changed.
- *        c. Register the MCP server in the chosen agent's config.
- *        d. Copy the feedback-detector skill + harness-feedback command.
+ *        a. Write ~/.loopback/config.json (mode 0600) if credentials changed.
+ *        b. Register the REMOTE MCP endpoint (<service>/mcp) + bearer header in
+ *           the chosen agent's config (no local bundle — the MCP is now hosted
+ *           by the loopback service).
+ *        c. Copy the feedback-detector skill + harness-feedback command.
  *   5. Print a green summary of what was written.
  *
  * NO hook injection. NO --automatic-feedback-detection. NO OpenCode plugin
@@ -31,8 +32,6 @@ import {
   isAgent,
   type Agent,
   detectAgent,
-  loopbackMcpDir,
-  loopbackMcpBundlePath,
   loopbackConfigPath,
   claudeDir,
   claudeSkillDir,
@@ -63,27 +62,6 @@ const AGENT_DISPLAY: Record<Agent, string> = {
   opencode: 'OpenCode',
   codex: 'Codex',
 };
-
-/* ------------------------------------------------------------------ *
- * Bundle resolution                                                   *
- * ------------------------------------------------------------------ */
-
-/**
- * Resolve the on-disk path of the MCP bundle shipped with this installer.
- * Layout in the published tarball:
- *
- *   <package-root>/dist/index.js        ← this file (after tsup)
- *   <package-root>/mcp-bundle/server.bundle.js
- *
- * In dev, the `prebuild` script copies loopback/mcp/server.bundle.js into
- * mcp-bundle/ before tsup runs. We resolve relative to `import.meta.url` so
- * `npx` invocations work no matter where the user is.
- */
-function resolveBundledMcp(): string {
-  // dist/index.js → ../mcp-bundle/server.bundle.js
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  return path.resolve(here, '..', 'mcp-bundle', 'server.bundle.js');
-}
 
 /* ------------------------------------------------------------------ *
  * Step 1: agent selection                                             *
@@ -194,10 +172,9 @@ async function resolveCreds(args: ParsedArgs): Promise<ResolvedCreds> {
  * ------------------------------------------------------------------ */
 
 function isFullyInstalled(agent: Agent): boolean {
-  // The MCP bundle must be in place AND every agent-side artifact must be
-  // present. Any one missing → not fully installed → run install actions.
-  if (!exists(loopbackMcpBundlePath())) return false;
-
+  // Fully installed = the MCP server is registered AND the skill + command are
+  // present. There is no local bundle anymore (the MCP is a remote endpoint),
+  // so registration + assets are the whole check. Any one missing → reinstall.
   switch (agent) {
     case 'claude-code': {
       const hasMcp = isClaudeMcpRegistered();
@@ -275,38 +252,22 @@ interface InstallReport {
   warnings: string[];
 }
 
-function installMcpBundle(): string {
-  const src = resolveBundledMcp();
-  if (!exists(src)) {
-    throw new Error(
-      `MCP bundle missing at ${src}\n` +
-        `This usually means the package was published without its mcp-bundle/ directory, ` +
-        `or you're running the installer from source without first running \`npm run build\`.`
-    );
-  }
-  const destDir = loopbackMcpDir();
-  fs.mkdirSync(destDir, { recursive: true });
-  const dest = loopbackMcpBundlePath();
-  // Copy fresh on every install so a stale bundle never sticks around.
-  fs.copyFileSync(src, dest);
-  // The bundle uses its own #!/usr/bin/env node shebang; mark it executable.
-  try {
-    fs.chmodSync(dest, 0o755);
-  } catch {
-    /* best-effort */
-  }
-  return dest;
-}
-
-function registerMcpClaudeCode(bundlePath: string, report: InstallReport): void {
+function registerMcpClaudeCode(mcpUrl: string, token: string, report: InstallReport): void {
   if (!commandExists('claude')) {
     report.warnings.push(
-      'claude CLI not on PATH — skipped MCP registration. Install Claude Code, then re-run the installer to wire up the MCP server.'
+      'claude CLI not on PATH — skipped MCP registration. Install Claude Code, then re-run the installer to wire up the remote MCP server.'
     );
     return;
   }
-  const spec = { command: 'node', args: [bundlePath] };
-  // Remove any previous entry first (matches legacy setup.js behavior).
+  // Remote HTTP MCP: Claude Code sends the static Authorization header on every
+  // request. add-json with a `type: "http"` spec is the registration shape.
+  const spec = {
+    type: 'http',
+    url: mcpUrl,
+    headers: { Authorization: `Bearer ${token}` },
+  };
+  // Remove any previous entry first (also clears a stale stdio registration
+  // from an older install).
   try {
     execFileSync('claude', ['mcp', 'remove', 'loopback', '-s', 'user'], {
       stdio: 'ignore',
@@ -330,40 +291,40 @@ function registerMcpClaudeCode(bundlePath: string, report: InstallReport): void 
   report.files.push(path.join(claudeDir(), '..', '.claude.json'));
 }
 
-function registerMcpOpenCode(bundlePath: string, report: InstallReport): void {
+function registerMcpOpenCode(mcpUrl: string, token: string, report: InstallReport): void {
   // Prefer .jsonc if it already exists, otherwise default to .json (the
   // file the legacy installer creates on a fresh OpenCode setup).
   const cp = exists(opencodeJsoncPath()) ? opencodeJsoncPath() : opencodeJsonPath();
   const config = exists(cp) ? readJSON<Record<string, any>>(cp) : {};
   config.mcp = (config.mcp as Record<string, any>) || {};
   const prior = ((config.mcp as Record<string, any>).loopback || {}) as Record<string, any>;
+  // Remote MCP: merge any user-added custom headers, but our bearer wins.
+  const priorHeaders =
+    prior.headers && typeof prior.headers === 'object'
+      ? (prior.headers as Record<string, unknown>)
+      : {};
   const entry: Record<string, unknown> = {
-    type: 'local',
-    command: ['node', bundlePath],
+    type: 'remote',
+    url: mcpUrl,
     enabled: true,
+    headers: { ...priorHeaders, Authorization: `Bearer ${token}` },
   };
-  // Preserve a user-supplied env block across re-runs.
-  if (
-    prior.environment &&
-    typeof prior.environment === 'object' &&
-    Object.keys(prior.environment as Record<string, unknown>).length > 0
-  ) {
-    entry.environment = prior.environment;
-  }
   (config.mcp as Record<string, any>).loopback = entry;
   writeJSON(cp, config);
   report.files.push(cp);
 }
 
-function registerMcpCodex(bundlePath: string, report: InstallReport): void {
+function registerMcpCodex(mcpUrl: string, token: string, report: InstallReport): void {
   const configPath = codexConfigPath();
   const existing = exists(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
   const preservedEnv = readCodexEnvBlock(existing);
 
+  // Remote MCP: `url` + a static Authorization header via `http_headers` (an
+  // inline TOML table). Self-contained — no env var to export at Codex launch.
   let block =
     '[mcp_servers.loopback]\n' +
-    'command = "node"\n' +
-    `args = [${JSON.stringify(bundlePath)}]\n`;
+    `url = ${JSON.stringify(mcpUrl)}\n` +
+    `http_headers = { "Authorization" = ${JSON.stringify('Bearer ' + token)} }\n`;
   if (Object.keys(preservedEnv).length > 0) {
     block += '\n[mcp_servers.loopback.env]\n';
     for (const [k, v] of Object.entries(preservedEnv)) {
@@ -446,30 +407,29 @@ export async function runInstall(args: ParsedArgs): Promise<void> {
   // 4. Install actions.
   const report: InstallReport = { agent, files: [], warnings: [] };
 
-  // 4a. MCP bundle.
-  const bundlePath = installMcpBundle();
-  report.files.push(bundlePath);
-
-  // 4b. Config (atomic, mode 0600). Only write if it changed.
+  // 4a. Config (atomic, mode 0600). Only write if it changed. ~/.loopback/config.json
+  //     remains the installer's single source of truth for the URL + token.
   if (creds.needsWrite) {
     writeConfig({ serviceUrl: creds.serviceUrl, token: creds.token });
     report.files.push(loopbackConfigPath());
   }
 
-  // 4c. MCP registration in the agent's config.
+  // 4b. Register the REMOTE MCP endpoint (<service>/mcp) + bearer header in the
+  //     agent's config. No local bundle — the MCP is hosted by the service.
+  const mcpUrl = creds.serviceUrl.replace(/\/+$/, '') + '/mcp';
   switch (agent) {
     case 'claude-code':
-      registerMcpClaudeCode(bundlePath, report);
+      registerMcpClaudeCode(mcpUrl, creds.token, report);
       break;
     case 'opencode':
-      registerMcpOpenCode(bundlePath, report);
+      registerMcpOpenCode(mcpUrl, creds.token, report);
       break;
     case 'codex':
-      registerMcpCodex(bundlePath, report);
+      registerMcpCodex(mcpUrl, creds.token, report);
       break;
   }
 
-  // 4d. Skill + command.
+  // 4c. Skill + command.
   copyAssetsForAgent(agent, report);
 
   // 5. Summary.

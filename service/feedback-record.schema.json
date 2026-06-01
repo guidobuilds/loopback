@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/guidobuilds/loopback/blob/main/loopback/core/feedback-record.schema.json",
+  "$id": "https://github.com/guidobuilds/loopback/blob/main/service/feedback-record.schema.json",
   "title": "Feedback Record",
-  "description": "The single wire contract for a loopback record (design §5). De-identified by construction: no raw artifact/output content is carried, only the synthesized lesson (summary) plus a minimal redacted excerpt. The record carries NO id — the server assigns the canonical id ('fb_<uuid>') on ingest and returns it. Reused by the client core (ajv) and the central FastAPI service (pydantic).",
+  "description": "The single wire contract for a loopback record (design §5). De-identified by construction: no raw artifact/output content is carried, only the synthesized lesson (summary) plus a minimal redacted excerpt. The record carries NO id — the server assigns the canonical id ('fb_<uuid>') on ingest and returns it. Enforced by the central FastAPI service (the pydantic models in app/models.py mirror this schema; app/mcp_server.py assembles records to it).",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "artifact", "summary"],

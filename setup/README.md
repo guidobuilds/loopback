@@ -1,9 +1,10 @@
 # @guidobuilds/loopback-setup
 
 Ephemeral, one-shot installer for [**loopback**](https://github.com/guidobuilds/loopback) —
-the harness-agnostic feedback loop for AI coding agents. It wires the loopback MCP server,
-the `feedback-detector` skill, and the `/harness-feedback` command into your agent
-(Claude Code, OpenCode, or Codex). Run it via `npx`; it leaves **no persistent CLI** behind.
+the harness-agnostic feedback loop for AI coding agents. It registers the **remote**
+loopback MCP endpoint and copies the `feedback-detector` skill + the `/harness-feedback`
+command into your agent (Claude Code, OpenCode, or Codex). Run it via `npx`; it leaves
+**no persistent CLI** behind.
 
 ## Usage
 
@@ -39,7 +40,7 @@ npx @guidobuilds/loopback-setup claude-code --service-url <url> --token <token> 
 | `-y, --yes` | Skip all prompts (take defaults) |
 | `--force` | Reinstall even if already installed |
 | `-r, --remove` | Uninstall mode |
-| `--all` | With `--remove`: also delete `~/.loopback/` (credentials + bundled MCP server) |
+| `--all` | With `--remove`: also delete `~/.loopback/` (the saved credentials) |
 | `-h, --help` | Show help |
 | `-v, --version` | Show version |
 
@@ -47,10 +48,9 @@ npx @guidobuilds/loopback-setup claude-code --service-url <url> --token <token> 
 
 1. Detects (or asks for) the target agent.
 2. Resolves credentials from flags → `~/.loopback/config.json` → prompt.
-3. Extracts the bundled MCP server to `~/.loopback/mcp/server.bundle.js`.
-4. Writes credentials to `~/.loopback/config.json` (mode `0600`).
-5. Registers the MCP server with the agent (`claude mcp add-json` / `opencode.json` / `~/.codex/config.toml`).
-6. Copies the `feedback-detector` skill and the `/harness-feedback` command into the agent's directories.
+3. Writes credentials to `~/.loopback/config.json` (mode `0600`).
+4. Registers the **remote** MCP endpoint (`<service>/mcp`) + the `Authorization: Bearer` header with the agent (`claude mcp add-json` / `opencode.json` / `~/.codex/config.toml`).
+5. Copies the `feedback-detector` skill and the `/harness-feedback` command into the agent's directories.
 
 Credentials live only in `~/.loopback/config.json`. To rotate them, re-run the installer
 with `--token` / `--service-url`, or answer `n` to the "use existing credentials?" prompt.

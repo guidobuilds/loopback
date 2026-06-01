@@ -30,18 +30,6 @@ export function loopbackConfigPath(): string {
   return path.join(loopbackDir(), 'config.json');
 }
 
-export function loopbackMcpDir(): string {
-  return path.join(loopbackDir(), 'mcp');
-}
-
-/**
- * Absolute on-disk path of the MCP server bundle once installed.
- * The agent's MCP entry points at this file.
- */
-export function loopbackMcpBundlePath(): string {
-  return path.join(loopbackMcpDir(), 'server.bundle.js');
-}
-
 /* ---- Claude Code -------------------------------------------------------- */
 
 export function claudeDir(): string {

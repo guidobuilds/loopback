@@ -41,27 +41,20 @@ feedback for later (human/automated) review.
 """
 from __future__ import annotations
 
-import json
+import contextlib
 import os
-import uuid
-from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import Depends, FastAPI, Header, Request
 from fastapi.responses import JSONResponse
-from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import db as db_mod
-from . import redact
 from . import tokens as tokens_mod
-from .models import FeedbackRecord, FeedbackResponse
-from .orm import Quarantine, Record, User
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+from .ingest import ingest_record
+from .mcp_server import BearerAuthMiddleware, build_mcp
+from .orm import Record, User
 
 
 _DEFAULT_PAGE = 100  # default `limit` when the param is absent.
@@ -215,7 +208,16 @@ def create_app(db_path: Optional[str] = None) -> FastAPI:
     engine = db_mod.init_db(db_path)
     session_factory = db_mod.make_session_factory(engine)
 
-    app = FastAPI(title="loopback-svc", version="0.0.1")
+    # The loopback MCP is now hosted IN the service (one tool: submit_feedback).
+    # Its streamable-HTTP session manager must run for the lifetime of the app.
+    mcp = build_mcp(session_factory)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(app: FastAPI):
+        async with mcp.session_manager.run():
+            yield
+
+    app = FastAPI(title="loopback-svc", version="0.2.0", lifespan=lifespan)
     app.state.db_path = db_path
     app.state.engine = engine
     app.state.session_factory = session_factory
@@ -238,68 +240,18 @@ def create_app(db_path: Optional[str] = None) -> FastAPI:
         authorization: Optional[str] = Header(default=None),
         session: Session = Depends(get_db),
     ) -> JSONResponse:
-        # 1. Auth: any valid per-user token (admin or not) may submit.
+        # Auth: any valid per-user token (admin or not) may submit.
         identity = _authenticate(session, authorization)
         if identity is None:
             return JSONResponse(status_code=401, content={"detail": "unauthorized"})
-
-        # 2. Parse + validate body. Schema-invalid -> 400 (NOT 422; 422 reserved).
         try:
             raw = await request.json()
         except Exception:
             return JSONResponse(status_code=400, content={"detail": "invalid JSON body"})
-        try:
-            record = FeedbackRecord.model_validate(raw)
-        except ValidationError as exc:
-            return JSONResponse(
-                status_code=400,
-                content={"detail": "schema validation failed", "errors": exc.errors(include_url=False)},
-            )
-
-        # 3. Server-side redaction re-check (design §7). Leak -> 422 + quarantine.
-        #    The record carries no client id, so the quarantine row gets its own
-        #    server-assigned id (same 'fb_<uuid>' shape as accepted records).
-        reasons = redact.leak_reasons(record.summary, record.evidenceExcerpt)
-        if reasons:
-            session.add(Quarantine(
-                id="fb_" + uuid.uuid4().hex,
-                reason=",".join(reasons),
-                payload=json.dumps(raw),
-                created_at=_now(),
-            ))
-            session.commit()
-            return JSONResponse(
-                status_code=422,
-                content={"detail": "redaction re-check failed; quarantined", "patterns": reasons},
-            )
-
-        # 4. Accept: assign a server id and append the record to the store. The
-        #    record is linked to the authenticated submitter via user_id.
-        server_id = "fb_" + uuid.uuid4().hex
-        art = record.artifact
-        session.add(Record(
-            id=server_id,
-            schema_version=record.schemaVersion,
-            artifact_kind=art.kind.value,
-            artifact_id=art.id,
-            artifact_version=art.version,
-            artifact_repo=art.repo,
-            summary=record.summary,
-            work_type=record.workType,
-            evidence_excerpt=record.evidenceExcerpt,
-            timestamp=record.timestamp,
-            severity=record.severity.value if record.severity else None,
-            confidence=record.confidence.value if record.confidence else None,
-            cluster_key=record.clusterKey,
-            client_plugin=record.client.plugin if record.client else None,
-            client_harness=record.client.harness.value if record.client and record.client.harness else None,
-            created_at=_now(),
-            user_id=identity["user_id"],
-        ))
-        session.commit()
-
-        resp = FeedbackResponse(status="stored", id=server_id)
-        return JSONResponse(status_code=200, content=resp.model_dump())
+        # Shared ingest core (validate -> redaction re-check/quarantine -> persist) —
+        # the IDENTICAL path the MCP submit_feedback tool runs.
+        status, body = ingest_record(session, raw, identity["user_id"])
+        return JSONResponse(status_code=status, content=body)
 
     @app.get("/feedback")
     def list_feedback(
@@ -354,6 +306,11 @@ def create_app(db_path: Optional[str] = None) -> FastAPI:
             status_code=200,
             content=_records_as_wire(session, lim, off, filters),
         )
+
+    # Mount the server-hosted MCP at /mcp, behind the bearer gate. Clients
+    # (Claude Code / OpenCode / Codex) connect to <service>/mcp with a static
+    # Authorization: Bearer <token> header (same tokens table as the REST API).
+    app.mount("/mcp", BearerAuthMiddleware(mcp.streamable_http_app(), session_factory))
 
     return app
 

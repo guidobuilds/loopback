@@ -1,16 +1,18 @@
 # loopback-svc
 
-Thin central ingest service for the feedback loop. The MVP is an
-**append-only feedback store**: it accepts de-identified feedback records,
-re-checks redaction, and **stores every valid record** with its identifying
-data. A token-guarded read-back endpoint (`GET /feedback`, admin-only) lists all
-stored feedback for later review. There is no registry, owner resolution,
-dedup/clustering, or issue fan-out.
+Central service for the feedback loop. It **hosts the loopback MCP** (remote,
+bearer-auth, at `/mcp`) **and** the **append-only feedback store**: it accepts
+de-identified feedback records (via the MCP `submit_feedback` tool or `POST
+/feedback`), re-checks redaction, and **stores every valid record** with its
+identifying data. A token-guarded read-back endpoint (`GET /feedback`,
+admin-only) lists all stored feedback for later review. There is no registry,
+owner resolution, dedup/clustering, or issue fan-out.
 
-- **Stack:** Python + FastAPI; **SQLAlchemy 2.0** + **Alembic** over SQLite;
-  per-user hashed-token bearer auth; Docker. Port `8080`.
-- **Wire contract:** `feedback-record.schema.json` (kept in lockstep with the
-  client's copy by `tests/test_contract.py`).
+- **Stack:** Python + FastAPI (hosts the MCP via the official `mcp` SDK);
+  **SQLAlchemy 2.0** + **Alembic** over SQLite; per-user hashed-token bearer auth;
+  Docker. Port `8080`.
+- **Wire contract:** `feedback-record.schema.json` (single source of truth; kept
+  in lockstep with the pydantic models by `tests/test_contract.py`).
 
 ## Quick start
 

@@ -4,8 +4,8 @@
  *
  * PATH is stripped of `claude` (the CLI) so the registration step takes the
  * graceful no-op branch — we only assert what the installer writes to disk
- * itself (config + bundle + skill + command), not what `claude mcp add-json`
- * would do.
+ * itself (config + skill + command), not what `claude mcp add-json` would do.
+ * The MCP is a remote endpoint now, so there is no local bundle to assert.
  */
 
 import { test } from 'node:test';
@@ -56,7 +56,7 @@ function runCli(args, { home, extraEnv = {} } = {}) {
   });
 }
 
-test('install: claude-code happy path materializes config + bundle + skill + command', () => {
+test('install: claude-code happy path materializes config + skill + command', () => {
   const home = mkHome();
   try {
     const r = runCli(
@@ -83,10 +83,12 @@ test('install: claude-code happy path materializes config + bundle + skill + com
       assert.equal(mode, 0o600, `config.json mode: ${mode.toString(8)}`);
     }
 
-    // MCP bundle copied to ~/.loopback/mcp/server.bundle.js.
-    const bundlePath = path.join(home, '.loopback', 'mcp', 'server.bundle.js');
-    assert.ok(fs.existsSync(bundlePath), 'server.bundle.js must exist');
-    assert.ok(fs.statSync(bundlePath).size > 1000, 'bundle should be non-trivial');
+    // No local MCP bundle anymore — the MCP is a remote endpoint registered via
+    // `claude mcp add-json` (skipped here since `claude` is absent from PATH).
+    assert.ok(
+      !fs.existsSync(path.join(home, '.loopback', 'mcp')),
+      'no ~/.loopback/mcp bundle dir should be created for a remote MCP',
+    );
 
     // Skill copied to ~/.claude/skills/feedback-detector/.
     const skillFile = path.join(home, '.claude', 'skills', 'feedback-detector', 'SKILL.md');

@@ -1,7 +1,8 @@
 /**
- * Read/write `~/.loopback/config.json` — the single source of credentials.
+ * Read/write `~/.loopback/config.json` — the installer's single source of
+ * credentials (service URL + token).
  *
- * Schema (matches `loopback/core/config.js`):
+ * On-disk schema:
  *   { schemaVersion: 2, serviceUrl: string, token: string }
  *
  * Both fields are optional on disk; the installer prompts for whatever is

@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # C1 — Detector precision scenario suite (design §3, plan Group C / C1).
 #
-# Drives the loopback plugin's feedback-detector skill (A7) through 5
+# Drives the loopback plugin's feedback-detector skill (A7) through 4
 # synthetic scenarios and asserts the precision contract:
 #
 #   TP1  defect, explicit correction   -> consent gate RAISED   (marker present)
 #   TP2  defect, same-file revert       -> consent gate RAISED   (marker present)
 #   FP1  iteration, new requirement     -> SILENT                (marker absent)
 #   FP2  unattributable                 -> SILENT                (marker absent)
-#   FP3  muted skill                     -> SILENT                (marker absent)
 #
 # The consent-gate marker is the distinctive sentinel token the SKILL.md emits as
 # the gate's first line ONLY when the gate is actually rendered to the user:
@@ -17,9 +16,8 @@
 # human-readable gate phrase while explaining why it is staying silent).
 #
 # Each scenario is a fixture under scenarios/*.json with: id, expect (gate|silent),
-# an optional `mute` (skill id to mute first), and a self-contained `prompt` (a
-# synthetic transcript + primed turn state instructing the model to apply the
-# detector skill at the turn boundary).
+# and a self-contained `prompt` (a synthetic transcript + primed turn state
+# instructing the model to apply the detector skill at the turn boundary).
 #
 # This suite is MODEL-DRIVEN: it actually runs a nested `claude` against the
 # plugin and inspects real output. It does NOT pattern-match a canned answer.
@@ -53,22 +51,20 @@ command -v jq >/dev/null 2>&1 || {
 }
 claude mcp get loopback >/dev/null 2>&1 || {
   echo "ENV-UNAVAILABLE: loopback is not installed in Claude Code. Run" >&2
-  echo "  npx @guidobuilds/loopback config claude-code --service-url <url> --token <tok>" >&2
-  echo "first (or 'node ${PLUGIN}/cli/index.js config claude-code ...' from a checkout)." >&2
+  echo "  npx @guidobuilds/loopback-setup claude-code --service-url <url> --token <tok> --yes" >&2
+  echo "first to register the remote loopback MCP." >&2
   exit 2
 }
 [ -d "${SCEN_DIR}" ] || { echo "FAIL: scenarios dir missing: ${SCEN_DIR}" >&2; exit 1; }
 
-# Run a prompt against the plugin via nested claude. stdin is redirected from
+# Run a prompt against the skill via nested claude. stdin is redirected from
 # /dev/null so claude does not stall waiting on a piped-but-empty stdin. The
-# given CLAUDE_PLUGIN_DATA isolates per-scenario mute state. Combined out+err.
+# loopback MCP is a REMOTE endpoint (claude connects to it over HTTP using the
+# registered bearer header); there is no local per-scenario state to isolate.
+# Combined out+err.
 drive() {
   local data_dir="$1" prompt="$2"
-  # loopback is installed via `loopback config` (plugin-less); claude reads it from
-  # the user config. LOOPBACK_DATA_DIR isolates per-scenario state (mutes) — the MCP
-  # server claude spawns inherits it.
-  LOOPBACK_DATA_DIR="${data_dir}" \
-    claude -p "${prompt}" </dev/null 2>&1
+  claude -p "${prompt}" </dev/null 2>&1
 }
 
 # --- self-probe: is nested-claude usable here at all? ------------------------
@@ -96,16 +92,10 @@ for f in "${SCEN_DIR}"/*.json; do
   id="$(jq -r '.id' "$f")"
   title="$(jq -r '.title // ""' "$f")"
   expect="$(jq -r '.expect' "$f")"          # gate | silent
-  mute_id="$(jq -r '.mute // empty' "$f")"
   prompt="$(jq -r '.prompt' "$f")"
 
-  # Fresh, isolated per-scenario state dir (no stale mutes leak between cases).
+  # Fresh, isolated per-scenario state dir.
   data_dir="$(mktemp -d)"
-  if [ -n "${mute_id}" ]; then
-    LOOPBACK_DATA_DIR="${data_dir}" node "${PLUGIN}/cli/index.js" mute "${mute_id}" >/dev/null 2>&1 || {
-      echo "[$id] SETUP-ERROR: could not mute ${mute_id}" >&2
-    }
-  fi
 
   out="$(drive "${data_dir}" "${prompt}")"
   rm -rf "${data_dir}" 2>/dev/null || true
@@ -139,8 +129,8 @@ done
 echo "----------------------------------------------------------------"
 echo "detector precision suite: ${pass}/${total} passed, ${fail} failed"
 
-if [ "${total}" -ne 5 ]; then
-  echo "WARN: expected 5 scenarios, found ${total}." >&2
+if [ "${total}" -ne 4 ]; then
+  echo "WARN: expected 4 scenarios, found ${total}." >&2
 fi
 
-[ "${fail}" -eq 0 ] && [ "${total}" -ge 5 ]
+[ "${fail}" -eq 0 ] && [ "${total}" -ge 4 ]

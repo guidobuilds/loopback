@@ -1,22 +1,28 @@
 ---
 name: feedback-detector
-description: Use at a natural turn boundary when the user appears to be correcting, reverting, or re-instructing output that a shipped skill or agent produced (correction language like "no that's wrong", a revert of a file the agent just wrote, or repeated re-instruction about the same artifact). Judges defect-vs-iteration with a hard precision bias, synthesizes a generalizable de-identified lesson, runs a per-send consent gate, and submits feedback to the owning team ONLY on explicit user confirmation.
+description: Evaluate at the END OF EVERY TURN whether the user just corrected, rejected, reverted, or re-instructed output that a shipped skill or subagent produced — e.g. they say it's wrong / not the right format / "you forgot to test", they rewrite or revert a file you generated earlier this session, or they repeat the same correction about one artifact. Do this self-check yourself by reading the visible conversation; no external hook or tripwire is required to fire. Applies a hard precision filter (real skill/agent DEFECT vs. normal iteration), and only on a genuine defect synthesizes a generalizable de-identified lesson and runs a per-send consent gate to forward feedback to that skill's owner ONLY on explicit user confirmation. Stay silent for new requirements, scope changes, preference tweaks, or edits that can't be attributed to a skill/agent.
 ---
 
 # Feedback Detector
 
 You are the judgment + synthesis + consent layer of loopback (design §3, §4).
 loopback is harness-agnostic: it runs the same way under Claude Code, OpenCode,
-and Codex. The deterministic adapters (the harness's hooks/plugin) are tripwires
-that only *prime* context; **you** do the reasoning, the synthesis, and the
-consent exchange. Tripwires never decide a defect occurred and never send
-anything — that is exclusively your job, gated on explicit user consent.
+and Codex. **You** do the detection, the reasoning, the synthesis, and the
+consent exchange. If a harness happens to provide deterministic tripwires
+(hooks/plugin) they only *prime* context — they never decide a defect occurred
+and never send anything. **No tripwire is wired today (the default), so do not
+wait for one:** detect the signals yourself by reading the visible conversation
+at the turn boundary. Either way the judgment and the consent exchange are
+exclusively your job, gated on explicit user consent.
 
-All state and side effects go through the **loopback MCP server's tools**, so this
-skill is identical on every harness (no harness-specific file paths). Depending on
-the harness those tools may be surfaced with a prefix (e.g.
-`mcp__loopback__submit_feedback` in Claude Code); call them by their logical name
-below and the harness will route them.
+The one side effect — sending a record — goes through the loopback MCP server's
+**single tool, `submit_feedback`**, which is now **hosted by the loopback service**
+(the harness connects to it as a *remote* MCP over HTTP). The skill is therefore
+identical on every harness. Depending on the harness the tool may be surfaced with
+a prefix (e.g. `mcp__loopback__submit_feedback` in Claude Code); call it by its
+logical name and the harness will route it. Everything else — judging the defect,
+synthesizing the lesson, and **redacting the excerpt** — is your own in-context
+work (there is no `redact_preview`/`is_muted`/`session_state` tool anymore).
 
 ## Prime directive: bias HARD for precision over recall
 
@@ -27,10 +33,23 @@ artifact per session.
 
 ## When to run
 
-Run only at a **natural turn boundary** (turn end), never mid-task. Triggers:
-- a tripwire primed **correction-language** in the latest user prompt, or
-- a tripwire reported a primed candidate at the **turn boundary**, or
+Self-evaluate at **every natural turn boundary** — the moment the user sends a
+message reacting to your previous output, before you start executing their next
+request. **You do not need a tripwire or hook to fire**; read the visible
+conversation yourself and check for the Step 1 signals. Run when any of these is
+true:
+
+- the latest user message contains **correction language** about something a
+  shipped skill/agent produced ("no, that's wrong", "wrong format", "you didn't
+  test this", "the template is X not Y"), or
+- the user **reverts or rewrites a file** you wrote earlier this session, or
+- the user **repeats a correction** about the same artifact, or
 - the user explicitly asks to file feedback (the manual feedback command).
+
+Never run mid-task, and run the check **at most once per turn**. The precision
+gates in Steps 1–4 still apply on every run — checking each turn does not mean
+prompting each turn; it means staying silent unless a real defect clears every
+gate. Never raise more than one candidate per artifact per session.
 
 ## Step 1 — Require at least one Tier-1 signal
 
@@ -76,41 +95,44 @@ Optionally, if the current working directory is a git repo, you may populate
 working). This field is optional — omit it and do not hard-fail if it is
 unavailable.
 
-## Step 4 — Mute gate (respect local opt-out)
+## Step 4 — De-bounce (one candidate per artifact per session)
 
-Call the **`is_muted`** tool with the artifact id.
+Raise **one candidate per artifact per session.** Check your own conversation
+context: if you have already surfaced a candidate for this artifact this session
+(or the user already declined or sent one), do **not** prompt again — fold any new
+evidence into `severity` instead. (Per-machine muting — the old "Never for this
+skill" opt-out — is not available in this version.)
 
-- `muted: true` → the user chose "Never for this skill" on this machine → **stay silent.**
-- `muted: false` → continue.
-
-## Step 5 — De-bounce
-
-Raise **one candidate per artifact per session**. Call **`get_session_state`** and
-check `raised`: if it already lists this artifact (you surfaced, or the user
-declined/sent, a candidate for it this session), fold the new evidence into
-severity but do **not** prompt again.
-
-## Step 6 — Synthesize a generalizable lesson + redacted excerpt
+## Step 5 — Synthesize a generalizable lesson + redact the excerpt
 
 Write a **generalizable** lesson (the `summary`), not a file-specific note:
 - Bad: "in this file you used the wrong header."
 - Good: "PRDs from `prd-writer` should use the `## Problem / ## Solution /
   ## Metrics` template; the generated PRD used a freeform structure."
 
-Reduce the raw correction to a **minimal** evidence excerpt and redact it by
-calling the **`redact_preview`** tool. The `redacted` text it returns is exactly
-what will be displayed and sent (show-exactly-what-is-sent); never show or send
-the raw excerpt.
+Reduce the raw correction to a **minimal** evidence excerpt and **redact it
+yourself, in context, before you show or send it.** Replace, at minimum:
+- email addresses → `[redacted-email]`
+- secrets / tokens / keys (API keys, GitHub/AWS/Slack tokens, JWTs, `Bearer`
+  tokens, `BEGIN … PRIVATE KEY` blocks) → `[redacted-token]`
+- absolute or relative filesystem paths and bare source/doc file names
+  (e.g. `/Users/you/app/auth.ts`, `auth.ts`, `prd.md`) → `[redacted-path]`
+- your OS username / `$HOME` → `[redacted-user]`
+
+Keep the excerpt short (a few lines, ~600 characters max). The redacted text you
+produce is **exactly** what you will display and send (show-exactly-what-is-sent);
+never show or send the raw excerpt. The service re-checks redaction on receipt as
+a safety net (Step 7), but do not lean on it — redact thoroughly here.
 
 Rate `severity` (low|medium|high) and your own `confidence` (low|medium|high), and
 propose a `clusterKey` of the form `artifact:workType:problem`
 (e.g. `prd-writer:prd-authoring:wrong-template`).
 
-## Step 7 — Render the consent gate (verbatim format)
+## Step 6 — Render the consent gate (verbatim format)
 
 Show the user EXACTLY this gate, filled in with the identified artifact, the
-synthesized lesson, and the `redacted` excerpt from `redact_preview`. The excerpt
-shown is byte-for-byte what is sent.
+synthesized lesson, and the excerpt you redacted in Step 5. The excerpt shown is
+byte-for-byte what is sent.
 
 The gate's first line is the sentinel token `HFB-CONSENT-GATE-v1` on its own
 line. This sentinel is the machine-detectable proof that the gate was actually
@@ -126,33 +148,40 @@ Possible skill defect detected — send feedback to the owner?
             "<redacted excerpt>"   (your file paths and names removed)
   Severity: <low|medium|high>     Confidence: <low|medium|high>
 
-  [S]end   [E]dit lesson/excerpt   [D]ecline   [N]ever for this skill
+  [S]end   [E]dit lesson/excerpt   [D]ecline
 ```
 
 The pinned phrase **`send feedback to the owner?`** and the literal options
-**`[S]end`**, **`[E]dit`**, **`[D]ecline`**, and **`[N]ever`** must appear exactly
-as written so the gate is unambiguous and testable.
+**`[S]end`**, **`[E]dit`**, and **`[D]ecline`** must appear exactly as written so
+the gate is unambiguous and testable.
 
 **Sentinel discipline (do not leak the token):** whenever you do **not** raise the
-gate — iteration, unattributable drop, muted, declined, de-bounced, or any other
-silent drop — you MUST NOT output the `HFB-CONSENT-GATE-v1` token or any part of
-the gate template. You may briefly note that you are not sending feedback, but
-never reproduce or quote the sentinel (or the gate block) except when you are
-truly rendering the gate to the user in this step.
+gate — iteration, unattributable drop, declined, de-bounced, or any other silent
+drop — you MUST NOT output the `HFB-CONSENT-GATE-v1` token or any part of the gate
+template. You may briefly note that you are not sending feedback, but never
+reproduce or quote the sentinel (or the gate block) except when you are truly
+rendering the gate to the user in this step.
 
-## Step 8 — Act ONLY on the user's choice
+## Step 7 — Act ONLY on the user's choice
 
-- **`[S]end`** → call the **`submit_feedback`** tool with the artifact fields, the
-  (possibly user-edited) `summary`, the redacted `evidenceExcerpt`, `workType`,
-  `severity`, `confidence`, and `clusterKey`. The tool re-redacts defensively,
-  validates against the wire contract, stamps `client.{plugin,harness}`, and
-  POSTs. Report the returned `issueUrl` to the user.
+- **`[S]end`** → call the **`submit_feedback`** tool with the artifact fields
+  (`artifactKind`, `artifactId`, and `artifactVersion`/`artifactRepo` if known),
+  the (possibly user-edited) `summary`, the redacted `evidenceExcerpt`, `workType`,
+  `severity`, `confidence`, `clusterKey`, and the `harness` you are running under.
+  Then read the returned `status`:
+  - `"ok"` → the record was stored; tell the user it was sent (you may mention the
+    returned `id`).
+  - `"quarantined"` → the service's redaction safety net found PII/secret
+    `patterns` you missed. Re-redact **those specific patterns** out of the
+    `summary`/`evidenceExcerpt` and call `submit_feedback` **once** more. If it is
+    still quarantined, tell the user it could not be sent safely and stop — do not
+    keep retrying.
+  - `"error"` → report the error briefly; nothing was stored.
 - **`[E]dit`** → let the user correct the lesson and/or trim/expand the excerpt,
-  **re-run `redact_preview` on the edited excerpt**, re-render this gate, and wait again.
+  **re-redact the edited excerpt in context** (Step 5), re-render this gate, and
+  wait again.
 - **`[D]ecline`** → do nothing, send nothing, and do not nag. Decline is free and
   silent.
-- **`[N]ever`** → call the **`mute_artifact`** tool with the artifact id to mute it
-  on this machine, then send nothing.
 
 Never call `submit_feedback` without an explicit `[S]end`. Nothing leaves the
 machine without per-send consent.
