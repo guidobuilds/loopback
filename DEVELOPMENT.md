@@ -12,7 +12,7 @@ into your harness, exercise the loop, and read the stored record back.
 ## Prerequisites
 
 - **Docker** + the `docker compose` plugin (`docker info` must succeed)
-- **Node.js ≥18** + **[Bun](https://bun.sh)** (to build the MCP bundle)
+- **Node.js ≥18**
 - **pnpm** (to build the installer; `npm` also works)
 - A harness CLI (e.g. `claude`)
 - `curl`, `openssl`, `git`
@@ -34,13 +34,13 @@ Copy each printed `lpbk_…` token (shown once). Auth is per-user, hashed at
 rest — there is no shared server token. The DB persists in the
 `feedback-data` volume.
 
-## 2. Build the MCP server bundle + the installer
+## 2. Build the installer
+
+The MCP server is hosted by the service (no client bundle to build). The
+installer's prebuild copies the `feedback-detector` skill + `/harness-feedback`
+command out of `loopback/` into `setup/mcp-bundle/`, then tsup builds the CLI:
 
 ```bash
-# MCP server bundle (consumed by the installer's prebuild step).
-cd ../loopback && npm install && npm run build
-
-# Installer (pulls the freshly-built bundle into setup/mcp-bundle/ as a prebuild step).
 cd ../setup && pnpm install && pnpm build
 ```
 
@@ -54,9 +54,9 @@ HOME=$HOME node setup/dist/index.js claude-code \
   --yes
 ```
 
-The installer writes `~/.loopback/config.json` (mode `0600`), extracts the MCP
-bundle to `~/.loopback/mcp/server.bundle.js`, registers the MCP server with
-the chosen harness, and copies the detector skill + `/harness-feedback`
+The installer writes `~/.loopback/config.json` (mode `0600`), registers the
+**remote** loopback MCP endpoint (`<service>/mcp`) + the `Authorization: Bearer`
+header with the chosen harness, and copies the detector skill + `/harness-feedback`
 command. Restart the harness. Confirm with `claude mcp list` /
 `claude mcp get loopback`.
 
@@ -86,12 +86,12 @@ The installer is **idempotent** and preserves your existing settings — it is
 always safe to re-run.
 
 - **Re-run `npx @guidobuilds/loopback-setup <agent>`** when you want to refresh the
-  install (e.g. after rebuilding the MCP bundle, or to point at a new
-  service URL).
+  install (e.g. to point at a new service URL or after a skill/command update).
 - **Rotate credentials** by re-running the installer and answering `n` to
   "Use these credentials?", or directly with
-  `npx @guidobuilds/loopback-setup --token <new> --service-url <new>`. The MCP server
-  picks up the new values from `~/.loopback/config.json` on its next launch.
+  `npx @guidobuilds/loopback-setup --token <new> --service-url <new>`. This rewrites
+  the bearer header in each harness's MCP registration; restart the harness so it
+  reconnects with the new token.
 - **Uninstall** with `npx @guidobuilds/loopback-setup --remove [agent]` (add `--all` to
   also delete `~/.loopback/`).
 

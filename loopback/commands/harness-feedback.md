@@ -24,14 +24,16 @@ record. There is **no registry**: nothing is looked up and no owner is resolved.
 Optionally, if the working directory is a git repo, populate `artifact.repo` from
 `git remote get-url origin` (omit if unavailable).
 
-## 2. Synthesize a generalizable lesson + redacted excerpt
+## 2. Synthesize a generalizable lesson + redact the excerpt
 
 Write the lesson as a **generalizable** statement (the `summary`), not a
-file-specific note. Reduce the evidence to a minimal excerpt and redact it by
-calling the **`redact_preview`** tool (loopback MCP). The `redacted` text it returns
-is exactly what is displayed and sent (show-exactly-what-is-sent); never show or
-send the raw excerpt. Pick `severity`, `confidence`, a `workType`, and a
-`clusterKey` of the form `artifact:workType:problem`.
+file-specific note. Reduce the evidence to a minimal excerpt and **redact it
+yourself, in context, before showing or sending it** — replace emails →
+`[redacted-email]`, secrets/tokens/keys → `[redacted-token]`, file paths and bare
+source/doc filenames → `[redacted-path]`, and your username/`$HOME` →
+`[redacted-user]`. The redacted text is exactly what is displayed and sent
+(show-exactly-what-is-sent); never show or send the raw excerpt. Pick `severity`,
+`confidence`, a `workType`, and a `clusterKey` of the form `artifact:workType:problem`.
 
 ## 3. Render the consent gate (verbatim)
 
@@ -49,20 +51,22 @@ Possible skill defect detected — send feedback to the owner?
             "<redacted excerpt>"   (your file paths and names removed)
   Severity: <low|medium|high>     Confidence: <low|medium|high>
 
-  [S]end   [E]dit lesson/excerpt   [D]ecline   [N]ever for this skill
+  [S]end   [E]dit lesson/excerpt   [D]ecline
 ```
 
 The pinned phrase **`send feedback to the owner?`** and the options **`[S]end`**,
-**`[E]dit`**, **`[D]ecline`**, **`[N]ever`** must appear exactly as written.
+**`[E]dit`**, **`[D]ecline`** must appear exactly as written.
 
 ## 4. Act on the user's choice
 
 - **`[S]end`** → call **`submit_feedback`** (loopback MCP) with the artifact fields,
   the (possibly edited) `summary`, the redacted `evidenceExcerpt`, `workType`,
-  `severity`, `confidence`, and `clusterKey`. Report the returned `issueUrl`.
-- **`[E]dit`** → revise, **re-run `redact_preview`** on the edited excerpt, re-render
-  the gate, wait again.
+  `severity`, `confidence`, `clusterKey`, and the `harness` you are running under.
+  On `status: "ok"` tell the user it was sent (mention the `id`); on
+  `status: "quarantined"` re-redact the returned `patterns` and retry **once**; on
+  `status: "error"` report it briefly.
+- **`[E]dit`** → revise, **re-redact the edited excerpt in context**, re-render the
+  gate, wait again.
 - **`[D]ecline`** → send nothing, do not nag.
-- **`[N]ever`** → call **`mute_artifact`** with the artifact id, then send nothing.
 
 Never call `submit_feedback` without an explicit `[S]end`.

@@ -12,9 +12,9 @@ it to a central append-only store the artifact's authors can review.
 |-----|--------|
 | [install.md](install.md) | `npx @guidobuilds/loopback-setup`: agents, flags, interactive branches, reinstall detection, credential rotation, uninstall. |
 | [admin.md](admin.md) | Admin workflow: run the service, mint tokens with `issue_token.py`, query `GET /feedback` via `curl` with all filters. |
-| [mcp.md](mcp.md) | The MCP server: registration per harness and the six tools (the developer-facing API of recurring use — there is no CLI equivalent). |
-| [service.md](service.md) | The FastAPI ingest service: endpoints, status codes, auth/token model, persistence, troubleshooting. |
-| [environment-variables.md](environment-variables.md) | Every env var (service, client, detection, test-only) plus the data-dir and harness-detection chains. |
+| [mcp.md](mcp.md) | The hosted MCP: remote registration per harness and the single `submit_feedback` tool (the developer-facing API of recurring use — there is no CLI equivalent). |
+| [service.md](service.md) | The FastAPI service: it hosts the MCP (`/mcp`) and the ingest endpoints — status codes, auth/token model, persistence, troubleshooting. |
+| [environment-variables.md](environment-variables.md) | Every env var (service + installer detection). |
 
 ## Getting started
 
@@ -24,6 +24,6 @@ it to a central append-only store the artifact's authors can review.
   service, mint an admin token, query `GET /feedback` with `curl`.
 - To **run loopback end to end from a checkout** (service in Docker + build the
   installer), see [`../DEVELOPMENT.md`](../DEVELOPMENT.md).
-- The **service** package README is [`../service/README.md`](../service/README.md);
-  the **installer** package is [`../setup/`](../setup/); the **MCP server +
-  core** package is [`../loopback/README.md`](../loopback/README.md).
+- The **service** package README is [`../service/README.md`](../service/README.md)
+  (it hosts the MCP); the **installer** package is [`../setup/`](../setup/); the
+  **skill + command** package is [`../loopback/README.md`](../loopback/README.md).
