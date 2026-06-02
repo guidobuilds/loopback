@@ -49,7 +49,16 @@ python3 tests/detector/eval.py --dimension precision
 
 Exit codes: `0` all scenarios matched their expectation · `1` at least one
 failed (a performance regression) · `2` the nested-`claude` path is unavailable
-here (reported honestly rather than faking PASS).
+here (reported honestly rather than faking PASS) · `130` interrupted with Ctrl-C.
+
+### Progress & interrupting
+
+Each scenario drives a multi-second nested `claude`, so the runner streams a
+timestamped, immediately-flushed log line as each scenario **starts** and
+**finishes** (with a running `k/N` counter) rather than going silent until the
+end. A **Ctrl-C** is handled cleanly: it terminates the in-flight nested runs,
+then prints the per-dimension/overall summary for whatever finished so far
+(labelled `PARTIAL`) and exits `130` — you never lose the work already done.
 
 ## Grading
 

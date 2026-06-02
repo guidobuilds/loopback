@@ -63,9 +63,11 @@ import concurrent.futures
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -75,6 +77,26 @@ REPO = HERE.parent.parent
 DEFAULT_SKILL = REPO / "loopback" / "skills" / "feedback-detector" / "SKILL.md"
 DEFAULT_SCEN_DIR = HERE / "scenarios"
 DIMENSIONS = ("precision", "recall", "redaction")
+
+
+class Log:
+    """Thread-safe, line-buffered progress logger.
+
+    Each scenario runs a multi-second nested `claude`, so without streaming
+    progress the suite looks frozen and a Ctrl-C leaves you with nothing. This
+    prints a timestamped line (flushed immediately, even when stdout is piped)
+    as each scenario starts and finishes, guarded by a lock so concurrent
+    worker threads don't interleave mid-line.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._start = time.monotonic()
+
+    def __call__(self, msg: str, err: bool = False) -> None:
+        line = f"[+{time.monotonic() - self._start:6.1f}s] {msg}"
+        with self._lock:
+            print(line, file=sys.stderr if err else sys.stdout, flush=True)
 
 
 def load_scenarios(scen_dir: Path, only_dim: str | None, only_id: str | None) -> list[dict]:
@@ -107,6 +129,26 @@ DISALLOWED_TOOLS = [
 ]
 
 
+# Active nested-claude child processes, so a Ctrl-C can terminate them promptly.
+# Each scenario blocks a worker thread inside the child; without killing the
+# children, the interpreter would hang at exit joining those non-daemon threads
+# and the partial summary would never flush. Tracking the Popens lets the
+# interrupt handler unblock the workers cleanly.
+_ACTIVE: set[subprocess.Popen] = set()
+_ACTIVE_LOCK = threading.Lock()
+
+
+def terminate_active() -> None:
+    """Terminate every in-flight nested-claude child (best effort)."""
+    with _ACTIVE_LOCK:
+        procs = list(_ACTIVE)
+    for p in procs:
+        try:
+            p.terminate()
+        except Exception:
+            pass
+
+
 def drive(prompt: str, skill_text: str, model: str | None, timeout: int) -> tuple[str, float, bool]:
     """Run one prompt through the nested skill. Returns (output, seconds, timed_out)."""
     cmd = ["claude", "-p", prompt, "--append-system-prompt", skill_text,
@@ -117,25 +159,28 @@ def drive(prompt: str, skill_text: str, model: str | None, timeout: int) -> tupl
     # git repo, or stray files to explore — only the self-contained scenario.
     workdir = tempfile.mkdtemp(prefix="detector-eval-")
     start = time.monotonic()
+    proc = subprocess.Popen(
+        cmd,
+        cwd=workdir,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    with _ACTIVE_LOCK:
+        _ACTIVE.add(proc)
     try:
-        proc = subprocess.run(
-            cmd,
-            cwd=workdir,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        out = (proc.stdout or "") + (proc.stderr or "")
-        return out, time.monotonic() - start, False
-    except subprocess.TimeoutExpired as exc:
-        out = ""
-        if exc.stdout:
-            out += exc.stdout if isinstance(exc.stdout, str) else exc.stdout.decode(errors="replace")
-        if exc.stderr:
-            out += exc.stderr if isinstance(exc.stderr, str) else exc.stderr.decode(errors="replace")
-        return out, time.monotonic() - start, True
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+            timed_out = False
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            stdout, stderr = proc.communicate()
+            timed_out = True
+        return (stdout or "") + (stderr or ""), time.monotonic() - start, timed_out
     finally:
+        with _ACTIVE_LOCK:
+            _ACTIVE.discard(proc)
         shutil.rmtree(workdir, ignore_errors=True)
 
 
@@ -202,17 +247,39 @@ def self_probe(skill_text: str, model: str | None, timeout: int) -> tuple[bool, 
     return True, ""
 
 
-def run_one(scenario: dict, skill_text: str, model: str, timeout: int) -> dict:
+def short_flags(result: dict) -> str:
+    flags = ""
+    if result.get("timed_out"):
+        flags += " [TIMEOUT]"
+    if result.get("leaked"):
+        flags += f" [LEAKED: {', '.join(result['leaked'])}]"
+    if result.get("missing"):
+        flags += f" [MISSING: {', '.join(result['missing'])}]"
+    return flags
+
+
+def run_one(scenario: dict, skill_text: str, model: str, timeout: int,
+            log: Log, counter: dict) -> dict:
+    sid = scenario.get("id")
+    dim = scenario.get("dimension")
+    title = scenario.get("title", "")
+    log(f"▶ start  [{sid:<7}] {dim:<9} {title}")
     out, seconds, timed_out = drive(scenario["prompt"], skill_text, model, timeout)
     result = grade(scenario, out)
     result.update({
-        "id": scenario.get("id"),
-        "dimension": scenario.get("dimension"),
-        "title": scenario.get("title", ""),
+        "id": sid,
+        "dimension": dim,
+        "title": title,
         "seconds": round(seconds, 1),
         "timed_out": timed_out,
         "output": out,
     })
+    verdict = "PASS" if result["passed"] else "FAIL"
+    with counter["lock"]:
+        counter["done"] += 1
+        k = counter["done"]
+    log(f"✔ done   [{sid:<7}] {verdict} {result['seconds']:>5.1f}s  "
+        f"({k}/{counter['total']}){short_flags(result)}")
     return result
 
 
@@ -230,6 +297,13 @@ def main() -> int:
     ap.add_argument("--no-probe", action="store_true", help="skip the nested-claude self-probe")
     args = ap.parse_args()
 
+    # Line-buffer stdout so the final table/aggregates aren't lost in a block
+    # buffer when output is piped and the run is interrupted partway.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+
     skill_path = Path(args.skill)
     if not skill_path.is_file():
         print(f"FAIL: skill file not found: {skill_path}", file=sys.stderr)
@@ -246,46 +320,84 @@ def main() -> int:
               file=sys.stderr)
         return 2
 
+    log = Log()
+
     scenarios = load_scenarios(scen_dir, args.dimension, args.id)
     if not scenarios:
         print("FAIL: no scenarios matched the given filters.", file=sys.stderr)
         return 1
 
     if not args.no_probe:
+        log("probing nested `claude -p` ...")
         ok, why = self_probe(skill_text, args.model, args.timeout)
         if not ok:
             print(f"ENV-UNAVAILABLE: {why}", file=sys.stderr)
             print("  -> Run this suite where a nested `claude -p` executes (host/interactive session).",
                   file=sys.stderr)
             return 2
+        log("probe ok")
 
-    print(f"feedback-detector eval: {len(scenarios)} scenario(s), jobs={args.jobs}, "
-          f"timeout={args.timeout}s\n")
+    log(f"feedback-detector eval: {len(scenarios)} scenario(s), jobs={args.jobs}, "
+        f"timeout={args.timeout}s")
 
+    counter = {"done": 0, "total": len(scenarios), "lock": threading.Lock()}
     results: list[dict] = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
-        futures = {
-            pool.submit(run_one, s, skill_text, args.model, args.timeout): s for s in scenarios
-        }
-        for fut in concurrent.futures.as_completed(futures):
-            results.append(fut.result())
+
+    # Ctrl-C handling: a blocked `as_completed` on the main thread won't deliver
+    # a KeyboardInterrupt until a future finishes, so instead an explicit SIGINT
+    # handler kills the in-flight children (unblocking their worker threads) and
+    # sets a stop Event, while the main loop polls with a short timeout so it
+    # notices the stop within ~0.5s regardless of when the next run completes.
+    stop = threading.Event()
+
+    def _on_sigint(_signum, _frame):
+        if not stop.is_set():
+            log("interrupt received — terminating in-flight scenarios and summarizing "
+                "what finished ...", err=True)
+            stop.set()
+            terminate_active()
+
+    prev_handler = signal.signal(signal.SIGINT, _on_sigint)
+
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
+    futures = {
+        pool.submit(run_one, s, skill_text, args.model, args.timeout, log, counter): s
+        for s in scenarios
+    }
+    try:
+        pending = set(futures)
+        while pending:
+            done, pending = concurrent.futures.wait(
+                pending, timeout=0.5, return_when=concurrent.futures.FIRST_COMPLETED)
+            for fut in done:
+                try:
+                    results.append(fut.result())
+                except concurrent.futures.CancelledError:
+                    pass
+            if stop.is_set():
+                for fut in pending:
+                    fut.cancel()
+                break
+    finally:
+        signal.signal(signal.SIGINT, prev_handler)
+        pool.shutdown(wait=False, cancel_futures=True)
+
+    interrupted = stop.is_set()
+
+    if not results:
+        log("no scenarios completed before interruption — nothing to report.", err=True)
+        return 130 if interrupted else 1
 
     # Stable ordering for the report: by dimension, then id.
     results.sort(key=lambda r: (r["dimension"], str(r["id"])))
 
     # --- per-scenario table ---
+    print()
     for r in results:
         verdict = "PASS" if r["passed"] else "FAIL"
-        flags = ""
-        if r["timed_out"]:
-            flags += " [TIMEOUT]"
-        if r["leaked"]:
-            flags += f" [LEAKED: {', '.join(r['leaked'])}]"
-        if r["missing"]:
-            flags += f" [MISSING: {', '.join(r['missing'])}]"
         print(f"[{r['id']:<7}] {verdict:<4} {r['dimension']:<9} "
               f"expect={r['expect']:<6} observed={r['observed']:<6} "
-              f"{r['seconds']:>5.1f}s  {r['title']}{flags}")
+              f"{r['seconds']:>5.1f}s  {r['title']}{short_flags(r)}")
 
     # --- per-dimension + overall aggregates ---
     print("\n" + "-" * 72)
@@ -302,7 +414,9 @@ def main() -> int:
         summary[dim] = {"passed": p, "total": len(rs), "pass_rate": round(rate, 3)}
         print(f"{dim:<10} {p}/{len(rs)} passed   (pass_rate={rate:.0%})")
     overall_rate = total_pass / len(results)
-    print(f"{'OVERALL':<10} {total_pass}/{len(results)} passed   (pass_rate={overall_rate:.0%})")
+    label = "OVERALL" if not interrupted else "PARTIAL"
+    print(f"{label:<10} {total_pass}/{len(results)} passed   (pass_rate={overall_rate:.0%})"
+          + ("   [interrupted — not all scenarios ran]" if interrupted else ""))
 
     report = {
         "skill": str(skill_path),
@@ -325,8 +439,15 @@ def main() -> int:
             for line in r["output"].splitlines()[-12:]:
                 print("    " + line, file=sys.stderr)
 
+    if interrupted:
+        return 130
     return 0 if not failures else 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        # A Ctrl-C outside the run loop (e.g. during the probe) still exits cleanly.
+        print("\ninterrupted.", file=sys.stderr, flush=True)
+        sys.exit(130)
