@@ -1,0 +1,9 @@
+{
+  "id": "REC-07",
+  "dimension": "recall",
+  "title": "defect, direct contradiction of skill output (wrong file emitted)",
+  "expect": "gate",
+  "rationale": "Tier-1 explicit correction directly contradicting what the skill produced: the `changelog-writer` skill wrote entries under the wrong release heading. Correcting the skill's factual output is a repair, not iteration -> defect -> raise the gate.",
+  "assertions": { "forbidden": [], "required": [] },
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- PostToolUse recorded that the `changelog-writer` skill (an identifiable active skill for this turn, so its output is attributable) edited CHANGELOG.md this turn, filing the new entries under the already-released 0.1.0 heading.\n- The new entries belong under the Unreleased heading; the skill put them in the wrong place.\n- The UserPromptSubmit primer flagged correction language in the user's latest message.\n\nThe user's latest message at this turn boundary is:\n\"That's wrong — those entries go under Unreleased, not under 0.1.0 which already shipped.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates. This contradicts and repairs the skill's output. Do not ask me clarifying questions first; act on the primed turn state."
+}

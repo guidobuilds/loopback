@@ -27,7 +27,15 @@ Optionally, if the working directory is a git repo, populate `artifact.repo` fro
 ## 2. Synthesize a generalizable lesson + redact the excerpt
 
 Write the lesson as a **generalizable** statement (the `summary`), not a
-file-specific note. Reduce the evidence to a minimal excerpt and **redact it
+file-specific note. Make it **clear, actionable, and self-typed**: a maintainer
+must be able to read it and fix the skill, and tell from the wording alone whether
+the defect is **technical / code** (name the concrete technical thing that was
+wrong — out-of-scope file edits, wrong class/definition, missing typing, wrong
+API/pattern, non-conforming structure — and what correct looks like) or
+**behavioral / flow** (describe how the behavior was wrong — over-confirming,
+skipped a promised step, ignored a standing convention, wrong sequencing — and the
+correct behavior). There is no tag or separate field; the prose itself carries the
+type. Reduce the evidence to a minimal excerpt and **redact it
 yourself, in context, before showing or sending it** — replace emails →
 `[redacted-email]`, secrets/tokens/keys → `[redacted-token]`, file paths and bare
 source/doc filenames → `[redacted-path]`, and your username/`$HOME` →

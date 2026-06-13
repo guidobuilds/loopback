@@ -1,0 +1,9 @@
+{
+  "id": "REC-08",
+  "dimension": "recall",
+  "title": "defect attributable to a subagent (kind=agent)",
+  "expect": "gate",
+  "rationale": "Tier-1 explicit correction toward output from an identifiable active subagent (the `db-migration` agent). Attribution works for agents too (artifact.kind=agent). Contradicting/repairing the migration the agent produced is a defect -> raise the gate.",
+  "assertions": { "forbidden": [], "required": [] },
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- PostToolUse recorded that the `db-migration` subagent (an identifiable active agent for this turn, so its output is attributable as kind=agent) generated a migration this turn that drops and recreates the users table instead of doing an in-place ALTER.\n- The team's rule is that migrations must be reversible and never drop a populated table.\n- The UserPromptSubmit primer flagged correction language in the user's latest message.\n\nThe user's latest message at this turn boundary is:\n\"No — you can't drop the users table to add a column. Migrations have to be reversible; use ALTER TABLE ADD COLUMN.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates. Attribute the defect to the subagent (kind=agent). Do not ask me clarifying questions first; act on the primed turn state."
+}

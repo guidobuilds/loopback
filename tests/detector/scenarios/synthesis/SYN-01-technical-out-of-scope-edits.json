@@ -1,0 +1,13 @@
+{
+  "id": "SYN-01",
+  "dimension": "synthesis",
+  "title": "technical defect lesson — edited files outside the requested scope",
+  "expect": "gate",
+  "rationale": "Tier-1 explicit correction of an attributable skill's output: it edited files outside the scope it was given. A genuine technical defect -> raise the gate. The point of this case is the QUALITY of the synthesized lesson: it must read as a technical/code defect and be actionable.",
+  "assertions": {
+    "forbidden": [],
+    "required": [],
+    "rubric": "Grade the `Lesson:` line of the gate. PASS only if it: (1) reads clearly as a TECHNICAL / code defect — about WHAT the skill changed (its file edits), not a vague complaint; (2) names the concrete problem: the skill edited files OUTSIDE the requested scope; (3) states what correct looks like in actionable terms a maintainer could encode into the skill (restrict edits to the files/modules named in the request); (4) is generalizable and de-identified (no specific absolute path, filename, or username). FAIL if it is vague (e.g. 'the edit was wrong'), gives no technical specifics, or omits what 'correct' looks like."
+  },
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- PostToolUse recorded that the `refactor-helper` skill (an identifiable active skill for this turn, so its output is attributable) was asked to rename a function only within the payments module this turn, but it also edited several unrelated configuration files outside that scope.\n- The UserPromptSubmit primer flagged correction language in the user's latest message.\n\nThe user's latest message at this turn boundary is:\n\"No — I asked you to only touch the payments module. You went and edited a bunch of config files that had nothing to do with this. Don't edit files outside the scope I gave you.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates. Treat the explicit correction of the skill's out-of-scope edits as the Tier-1 signal. Do not ask me clarifying questions first; act on the primed turn state."
+}

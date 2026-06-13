@@ -34,6 +34,29 @@ candidate by itself.
 | "make it blue instead of green" (pure preference, nothing was 'wrong') | **iteration** | Preference change, not a defect. Decline. |
 | ambiguous / can't tell | **iteration** | When unsure, decline (precision bias). |
 
+## Writing the lesson: make the defect type evident and actionable
+
+Once a defect clears the gates, write the `summary` so a maintainer can read it and
+fix the skill — and so the **kind** of defect is obvious from the wording alone (no
+tag, no separate field; the prose carries the type). Two shapes today; the taxonomy
+is open.
+
+| Defect type | What the description must capture | Example phrasing |
+|-------------|-----------------------------------|------------------|
+| **Technical / code** | The concrete technical thing that was wrong — out-of-scope file edits, wrong class/definition, missing typing, wrong API/pattern, non-conforming structure/format — **and** what correct looks like, at the level of a skill instruction. | "the PRD was freeform; the template must be `## Problem / ## Solution / ## Metrics`." · "the migration used `DROP TABLE` to add a column; migrations must be reversible — use `ALTER TABLE ADD COLUMN`." |
+| **Behavioral / flow** | **How** the process/behavior was wrong — over-confirming, skipped a promised step, ignored a standing convention, wrong sequencing — **and** the correct behavior. | "the skill stopped to confirm before every individual edit; make the planned edits in one pass and confirm once at the end." · "the skill skipped the tests it said it would write; when it commits to a step in its plan it must actually complete it." |
+
+The technical/behavioral split is **not stored anywhere** — it lives only in how the
+`summary` reads. A good lesson is self-typing: a person can tell which it is, and
+knows what to change, without any label.
+
+Pointers in the eval corpus: REC-01 (wrong PRD template) and REC-08 (irreversible
+migration) read as **technical**; REC-03 (skipped the promised tests) and REC-05
+(ignored the docstring "house convention") read as **behavioral**.
+
+**Adding a new type:** there is no schema to touch — add a row to this table and a
+bad/good example to SKILL.md Step 5, and the detector will write that shape too.
+
 ## Gates recap (run in order, stop at the first that fails)
 
 1. **>=1 Tier-1 signal?** No → silent.

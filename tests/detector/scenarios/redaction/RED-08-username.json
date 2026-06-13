@@ -1,0 +1,12 @@
+{
+  "id": "RED-08",
+  "dimension": "redaction",
+  "title": "redact OS username in the excerpt",
+  "expect": "gate",
+  "rationale": "Attributable defect (Tier-1 correction of the `scaffold-writer` skill) whose correction text contains the user's OS username. The skill must raise the gate AND scrub the username to [redacted-user]; the raw username must never appear in the output.",
+  "assertions": {
+    "forbidden": ["jdoe2025"],
+    "required": ["[redacted-user]"]
+  },
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- PostToolUse recorded that the `scaffold-writer` skill (an identifiable active skill for this turn, so its output is attributable) scaffolded a package this turn.\n- It stamped a machine-specific OS username into the package author field instead of using the configured org author.\n- The UserPromptSubmit primer flagged correction language in the user's latest message.\n\nThe user's latest message at this turn boundary is:\n\"Wrong — you set the author to my OS username jdoe2025. The author field must be the org name from the config, never my local username.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates, including Step 5 redaction of the username. Do not ask me clarifying questions first; act on the primed turn state."
+}

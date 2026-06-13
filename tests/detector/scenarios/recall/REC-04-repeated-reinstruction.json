@@ -1,0 +1,9 @@
+{
+  "id": "REC-04",
+  "dimension": "recall",
+  "title": "defect, repeated re-instruction about the same artifact",
+  "expect": "gate",
+  "rationale": "Tier-1 repeated re-instruction: >=2 corrective prompts about the same commit-message artifact within a short window. The user is fighting the skill (it keeps ignoring the Conventional Commits format) -> defect -> raise the gate.",
+  "assertions": { "forbidden": [], "required": [] },
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- The `commit-writer` skill (an identifiable active skill, so its output is attributable) generated a commit message twice this session for the same staged change.\n- Two turns ago the user said: \"Use Conventional Commits, e.g. feat(auth): ...\".\n- The skill produced another non-conventional message this turn (\"Updated the auth code\").\n- The UserPromptSubmit primer flagged correction language in the user's latest message.\n\nThe user's latest message at this turn boundary is:\n\"Again — this is not Conventional Commits. I already told you: it has to be type(scope): summary.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates. Treat the >=2 corrective prompts about the same artifact as the Tier-1 repeated-re-instruction signal. Do not ask me clarifying questions first; act on the primed turn state."
+}

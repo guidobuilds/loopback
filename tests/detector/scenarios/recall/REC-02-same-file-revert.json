@@ -1,7 +1,9 @@
 {
-  "id": "TP2",
+  "id": "REC-02",
+  "dimension": "recall",
   "title": "defect, same-file revert",
   "expect": "gate",
-  "rationale": "Tier-1 same-file revert: Claude (via an identifiable active skill) Wrote auth.ts this turn, and the very next turn rewrites the SAME file_path reverting that change. Targeting the file Claude just wrote is the load-bearing revert signal -> raise the consent gate.",
+  "rationale": "Tier-1 same-file revert: an identifiable active skill Wrote auth.ts this turn, and the very next turn rewrites the SAME file_path reverting that change. Targeting the file the skill just wrote is the load-bearing revert signal -> raise the consent gate.",
+  "assertions": { "forbidden": [], "required": [] },
   "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks across the last two turns at this turn boundary:\n- Previous turn: a PostToolUse hook recorded that the `prd-writer` skill (an identifiable active skill for that turn, so its output is attributable) used a Write tool call to author the file auth.ts, replacing the existing token-refresh logic with a new implementation.\n- This turn: a PostToolUse hook recorded another Write tool call targeting the SAME file_path auth.ts, and the new content reverts auth.ts back to the original token-refresh logic that existed before the skill touched it (a same-file revert of the skill's output).\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates (run the attribution gate as instructed by the skill). Treat the same-file_path revert of the skill's just-written output as the Tier-1 signal. Do not ask me clarifying questions first; act on the primed turn state."
 }

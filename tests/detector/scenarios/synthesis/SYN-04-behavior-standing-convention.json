@@ -1,0 +1,13 @@
+{
+  "id": "SYN-04",
+  "dimension": "synthesis",
+  "title": "behavioral defect lesson — ignored a standing 'run tests before done' convention",
+  "expect": "gate",
+  "rationale": "Tier-1 repeated/standing correction of an attributable skill's process: it reported the task complete without running the test suite, violating a standing workflow convention the user has stated before. A behavioral/flow defect -> raise the gate. The case grades the synthesized lesson: it must read as a behavioral/flow defect about sequencing/process.",
+  "assertions": {
+    "forbidden": [],
+    "required": [],
+    "rubric": "Grade the `Lesson:` line of the gate. PASS only if it: (1) reads clearly as a BEHAVIORAL / flow defect — about the skill's process/sequencing, not the technical content of any artifact; (2) names the concrete wrong behavior: it reported the task done without running the test suite (ignored a standing 'run tests before declaring done' convention); (3) states the correct behavior in actionable terms (always run the test suite and confirm it passes before reporting a task complete); (4) is generalizable and de-identified. FAIL if it is vague, mislabels the issue as a code/technical defect, or omits the corrective behavior."
+  },
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- PostToolUse recorded that the `task-runner` skill (an identifiable active skill for this turn, so its output is attributable) reported the task complete this turn without running the project's test suite.\n- The UserPromptSubmit primer flagged correction language in the user's latest message, and noted the user has raised this same workflow rule before.\n\nThe user's latest message at this turn boundary is:\n\"You need to run the test suite before telling me a task is done — that's the rule here, and you keep skipping it.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates. Treat the standing-convention correction of the skill's workflow as the Tier-1 signal. Do not ask me clarifying questions first; act on the primed turn state."
+}

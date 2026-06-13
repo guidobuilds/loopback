@@ -1,0 +1,13 @@
+{
+  "id": "SYN-03",
+  "dimension": "synthesis",
+  "title": "behavioral defect lesson — asked for confirmation before every step",
+  "expect": "gate",
+  "rationale": "Tier-1 explicit correction of an attributable skill's process: it paused to confirm before each individual edit instead of executing the planned edits in one pass. The output content was fine; the BEHAVIOR was wrong -> defect -> raise the gate. The case grades the synthesized lesson: it must read as a behavioral/flow defect.",
+  "assertions": {
+    "forbidden": [],
+    "required": [],
+    "rubric": "Grade the `Lesson:` line of the gate. PASS only if it: (1) reads clearly as a BEHAVIORAL / flow defect — about HOW the skill worked (its interaction/process), not about the technical content it produced; (2) names the concrete wrong behavior: it asked for confirmation before every individual step/edit; (3) states the correct behavior in actionable terms (make the planned edits in one pass and confirm once at the end); (4) is generalizable and de-identified. FAIL if it is vague, mislabels the issue as a code/technical defect, or omits what the correct behavior should be."
+  },
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- PostToolUse recorded that the `bulk-editor` skill (an identifiable active skill for this turn, so its output is attributable) was applying a planned set of edits this turn, but it stopped and asked the user to confirm before each individual file edit instead of doing them in one pass.\n- The UserPromptSubmit primer flagged correction language in the user's latest message.\n\nThe user's latest message at this turn boundary is:\n\"Stop asking me to confirm before every single edit. When you have a plan, just make all the edits in one pass and check with me once at the end.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates. Treat the explicit correction of the skill's over-confirming behavior as the Tier-1 signal. Do not ask me clarifying questions first; act on the primed turn state."
+}

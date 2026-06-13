@@ -1,0 +1,9 @@
+{
+  "id": "PREC-05",
+  "dimension": "precision",
+  "title": "ambiguous reaction (can't tell defect vs iteration)",
+  "expect": "silent",
+  "rationale": "A vague reaction ('hmm, not quite what I had in mind') with no concrete correction is ambiguous. The skill's rule is: when you cannot clearly tell defect from iteration, treat it as iteration and decline (precision bias) -> stay silent.",
+  "assertions": { "forbidden": [], "required": [] },
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- PostToolUse recorded that the `summary-writer` skill (an identifiable active skill for this turn) produced a meeting summary this turn.\n- The UserPromptSubmit primer did NOT flag any concrete correction; the message is vague sentiment without specifics.\n\nThe user's latest message at this turn boundary is:\n\"Hmm, not quite what I had in mind.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates. There is no concrete correction to act on, so apply the precision-biased ambiguity rule. Do not ask me clarifying questions first; act on the primed turn state."
+}

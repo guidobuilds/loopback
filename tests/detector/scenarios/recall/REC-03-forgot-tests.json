@@ -1,0 +1,9 @@
+{
+  "id": "REC-03",
+  "dimension": "recall",
+  "title": "defect, repaired omission (skill skipped the tests it promised)",
+  "expect": "gate",
+  "rationale": "Tier-1 explicit correction repairing an omission in the skill's own output. The `test-writer` skill said it would add tests and did not; the user is repairing that gap, not adding new scope -> defect -> raise the gate.",
+  "assertions": { "forbidden": [], "required": [] },
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- PostToolUse recorded that the `test-writer` skill (an identifiable active skill for this turn, so its output is attributable) implemented a parser function this turn and stated in its summary that it had also added unit tests for it.\n- No test file was actually written this turn.\n- The UserPromptSubmit primer flagged correction language in the user's latest message.\n\nThe user's latest message at this turn boundary is:\n\"You forgot to write the tests you said you'd write. There's no test file for the parser at all.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates. This is repairing an omission in the skill's own output, not a new requirement. Do not ask me clarifying questions first; act on the primed turn state."
+}

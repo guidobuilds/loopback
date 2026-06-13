@@ -1,0 +1,9 @@
+{
+  "id": "REC-06",
+  "dimension": "recall",
+  "title": "defect, missing required section in generated artifact",
+  "expect": "gate",
+  "rationale": "Tier-1 explicit correction repairing an omission: the `rfc-writer` skill produced an RFC missing the mandatory 'Security Considerations' section. Pointing out a missing required element is a repair of the skill's output, not new scope -> defect -> raise the gate.",
+  "assertions": { "forbidden": [], "required": [] },
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- PostToolUse recorded a Write tool call this turn that created rfc.md, produced by the `rfc-writer` skill (an identifiable active skill for this turn, so its output is attributable).\n- The RFC template the skill is supposed to follow requires a 'Security Considerations' section, and the generated RFC omitted it.\n- The UserPromptSubmit primer flagged correction language in the user's latest message.\n\nThe user's latest message at this turn boundary is:\n\"This RFC is missing the Security Considerations section — every RFC has to have one. You left it out.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates. This repairs a missing required section in the skill's output, not a new requirement. Do not ask me clarifying questions first; act on the primed turn state."
+}

@@ -1,0 +1,9 @@
+{
+  "id": "PREC-04",
+  "dimension": "precision",
+  "title": "iteration, pure preference change (nothing was wrong)",
+  "expect": "silent",
+  "rationale": "A pure preference tweak ('make it blue instead of green') where nothing the skill produced was actually wrong is iteration, not a defect. Preference changes are explicitly out of scope for the detector -> stay silent.",
+  "assertions": { "forbidden": [], "required": [] },
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- PostToolUse recorded that the `ui-builder` skill (an identifiable active skill for this turn) styled a button this turn with a green background, which renders correctly and matches no violated rule.\n\nThe user's latest message at this turn boundary is:\n\"Make it blue instead of green.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates. This is a preference change, not a repair of something wrong. Do not ask me clarifying questions first; act on the primed turn state."
+}
