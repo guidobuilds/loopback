@@ -5,7 +5,7 @@ This is the model-driven evaluation suite for loopback's `feedback-detector`
 skill. It drives the *real* skill — the very `SKILL.md` we ship — through a
 corpus of synthetic turn-boundary scenarios and grades the model's output
 against per-scenario assertions, so we can measure the skill's performance
-along the three dimensions that matter for it:
+along the dimensions that matter for it:
 
   precision  the skill must stay SILENT on normal iteration, scope changes,
              preference tweaks, ambiguous corrections, unattributable
@@ -22,6 +22,13 @@ along the three dimensions that matter for it:
              before showing it (show-exactly-what-is-sent). We assert the raw
              secret never appears anywhere in the output and that the canonical
              [redacted-*] placeholders do.
+
+  synthesis  on a real defect, the lesson the skill writes must be clear,
+             actionable, and self-typed — a reader can tell from the wording
+             alone whether it is a technical/code defect or a behavioral/flow
+             defect, and knows what to change. Prose quality can't be checked by
+             substring, so these scenarios carry an `assertions.rubric` graded by
+             a second nested `claude` (see judge()).
 
 How a scenario is driven
 ------------------------
@@ -44,7 +51,9 @@ A scenario PASSES iff all of:
   2. every `assertions.forbidden` substring is ABSENT from the output
      (e.g. a raw API key or email must never leak), and
   3. every `assertions.required` substring is PRESENT in the output
-     (e.g. the `[redacted-token]` placeholder).
+     (e.g. the `[redacted-token]` placeholder), and
+  4. if `assertions.rubric` is set, the second-pass rubric judge returns PASS
+     (only evaluated when a gate was rendered).
 
 This suite is honest about its environment: if the nested-`claude` path is
 unavailable or unreliable here, it exits 2 (ENV-UNAVAILABLE) and says so rather
@@ -72,11 +81,15 @@ import time
 from pathlib import Path
 
 MARKER = "HFB-CONSENT-GATE-v1"
+# Verdict tokens the rubric judge (a second nested claude) must emit. Used only by
+# `synthesis` scenarios that carry an `assertions.rubric`; see judge() below.
+JUDGE_PASS = "JUDGE-VERDICT: PASS"
+JUDGE_FAIL = "JUDGE-VERDICT: FAIL"
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 DEFAULT_SKILL = REPO / "loopback" / "skills" / "feedback-detector" / "SKILL.md"
 DEFAULT_SCEN_DIR = HERE / "scenarios"
-DIMENSIONS = ("precision", "recall", "redaction")
+DIMENSIONS = ("precision", "recall", "redaction", "synthesis")
 
 
 class Log:
@@ -150,9 +163,17 @@ def terminate_active() -> None:
 
 
 def drive(prompt: str, skill_text: str, model: str | None, timeout: int) -> tuple[str, float, bool]:
-    """Run one prompt through the nested skill. Returns (output, seconds, timed_out)."""
-    cmd = ["claude", "-p", prompt, "--append-system-prompt", skill_text,
-           "--disallowedTools", *DISALLOWED_TOOLS]
+    """Run one prompt through a fresh nested `claude`. Returns (output, seconds, timed_out).
+
+    When `skill_text` is non-empty it is appended as the system prompt (this is how
+    the detector SKILL.md is loaded for scenario runs). Pass an empty string to run
+    a plain nested `claude` with no skill attached — used by the rubric judge, which
+    grades a lesson and must NOT itself behave like the detector.
+    """
+    cmd = ["claude", "-p", prompt]
+    if skill_text:
+        cmd += ["--append-system-prompt", skill_text]
+    cmd += ["--disallowedTools", *DISALLOWED_TOOLS]
     if model:
         cmd += ["--model", model]
     # Isolate the nested run in a fresh empty cwd so it has no project CLAUDE.md,
@@ -184,8 +205,49 @@ def drive(prompt: str, skill_text: str, model: str | None, timeout: int) -> tupl
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def grade(scenario: dict, output: str) -> dict:
-    """Grade one scenario's output against expect + assertions."""
+def judge(output: str, rubric: str, model: str | None, timeout: int) -> tuple[bool, str]:
+    """Grade a rendered lesson against a prose `rubric` via a second nested `claude`.
+
+    Substring checks can verify a placeholder is present, but they cannot tell
+    whether a prose lesson is clear, actionable, and self-typed (does it read as a
+    technical/code defect vs a behavioral/flow defect?). For `synthesis` scenarios
+    we hand the gate output plus a rubric to a fresh nested `claude` and let it
+    return a PASS/FAIL verdict. Returns (passed, reason).
+    """
+    prompt = (
+        "You are grading the QUALITY of a synthesized feedback lesson — you are NOT "
+        "writing one and NOT acting as a feedback detector.\n\n"
+        "Below is (1) a rubric and (2) the consent-gate text a feedback skill "
+        "produced. The lesson is on the `Lesson:` line of the gate. Judge ONLY "
+        "whether that lesson satisfies EVERY point of the rubric.\n\n"
+        f"=== RUBRIC ===\n{rubric}\n\n"
+        f"=== GATE OUTPUT ===\n{output}\n\n"
+        "On the FIRST line reply with EXACTLY one token — "
+        f"`{JUDGE_PASS}` if every rubric point is met, otherwise `{JUDGE_FAIL}`. "
+        "On the next line give a one-line reason."
+    )
+    out, _, timed_out = drive(prompt, "", model, min(timeout, 180))
+    if timed_out:
+        return False, "judge timed out"
+    reason = next(
+        (ln.strip() for ln in out.splitlines() if ln.strip() and "JUDGE-VERDICT" not in ln),
+        "",
+    )
+    if JUDGE_PASS in out and JUDGE_FAIL not in out:
+        return True, reason
+    if JUDGE_FAIL in out:
+        return False, reason or "rubric not met"
+    return False, "judge produced no clear verdict"
+
+
+def grade(scenario: dict, output: str, model: str | None = None, timeout: int = 300) -> dict:
+    """Grade one scenario's output against expect + assertions.
+
+    `model`/`timeout` are only used when a scenario carries `assertions.rubric`,
+    which triggers the second-pass rubric judge (synthesis dimension). Scenarios
+    without a rubric are graded purely on the deterministic checks below, exactly
+    as before.
+    """
     expect = scenario.get("expect")
     observed = "gate" if MARKER in output else "silent"
     expect_ok = observed == expect
@@ -193,6 +255,7 @@ def grade(scenario: dict, output: str) -> dict:
     assertions = scenario.get("assertions", {}) or {}
     forbidden = assertions.get("forbidden", []) or []
     required = assertions.get("required", []) or []
+    rubric = assertions.get("rubric")
 
     # `forbidden` substrings must NOT appear (raw secrets / PII leaked through).
     leaked = [s for s in forbidden if s in output]
@@ -220,13 +283,27 @@ def grade(scenario: dict, output: str) -> dict:
             "evidence": "present (good)" if present else "MISSING",
         })
 
-    passed = expect_ok and not leaked and not missing
+    # Optional rubric judge: only when a rubric is declared AND a gate was rendered
+    # (no gate ⇒ no lesson to grade; expect_ok already fails that case).
+    rubric_ok = None
+    rubric_reason = ""
+    if rubric and observed == "gate":
+        rubric_ok, rubric_reason = judge(output, rubric, model, timeout)
+        checks.append({
+            "text": f"lesson satisfies rubric: {rubric}",
+            "passed": rubric_ok,
+            "evidence": rubric_reason or ("ok" if rubric_ok else "rubric not met"),
+        })
+
+    passed = expect_ok and not leaked and not missing and (rubric_ok is not False)
     return {
         "passed": passed,
         "expect": expect,
         "observed": observed,
         "leaked": leaked,
         "missing": missing,
+        "rubric_ok": rubric_ok,
+        "rubric_reason": rubric_reason,
         "checks": checks,
     }
 
@@ -255,6 +332,8 @@ def short_flags(result: dict) -> str:
         flags += f" [LEAKED: {', '.join(result['leaked'])}]"
     if result.get("missing"):
         flags += f" [MISSING: {', '.join(result['missing'])}]"
+    if result.get("rubric_ok") is False:
+        flags += f" [RUBRIC: {result.get('rubric_reason') or 'failed'}]"
     return flags
 
 
@@ -265,7 +344,7 @@ def run_one(scenario: dict, skill_text: str, model: str, timeout: int,
     title = scenario.get("title", "")
     log(f"▶ start  [{sid:<7}] {dim:<9} {title}")
     out, seconds, timed_out = drive(scenario["prompt"], skill_text, model, timeout)
-    result = grade(scenario, out)
+    result = grade(scenario, out, model, timeout)
     result.update({
         "id": sid,
         "dimension": dim,
@@ -294,6 +373,8 @@ def main() -> int:
                     help="per-scenario wall-clock budget in seconds (default 300)")
     ap.add_argument("--model", default=os.environ.get("EVAL_MODEL"), help="model id for the nested session")
     ap.add_argument("--json", dest="json_out", help="write the full grading report to this path")
+    ap.add_argument("--save-outputs", dest="save_outputs", metavar="DIR",
+                    help="write each scenario's full model output to DIR/<id>.txt (pass or fail)")
     ap.add_argument("--no-probe", action="store_true", help="skip the nested-claude self-probe")
     args = ap.parse_args()
 
@@ -429,6 +510,23 @@ def main() -> int:
     if args.json_out:
         Path(args.json_out).write_text(json.dumps(report, indent=2))
         print(f"\nwrote grading report -> {args.json_out}")
+
+    # Persist each scenario's full model output (the part the JSON report omits),
+    # one file per id, so passing scenarios can be inspected too — not just the
+    # 12-line failure tail printed below.
+    if args.save_outputs:
+        out_dir = Path(args.save_outputs)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for r in results:
+            verdict = "PASS" if r["passed"] else "FAIL"
+            header = (
+                f"# [{r['id']}] {verdict}  dimension={r['dimension']}  "
+                f"expect={r['expect']}  observed={r['observed']}  {r['seconds']}s\n"
+                f"# {r['title']}\n"
+                f"{'-' * 72}\n"
+            )
+            (out_dir / f"{r['id']}.txt").write_text(header + r.get("output", ""))
+        print(f"wrote {len(results)} scenario output(s) -> {out_dir}")
 
     # Surface failing outputs for debugging.
     failures = [r for r in results if not r["passed"]]

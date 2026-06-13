@@ -1,0 +1,13 @@
+{
+  "id": "SYN-02",
+  "dimension": "synthesis",
+  "title": "technical defect lesson — produced code without type annotations",
+  "expect": "gate",
+  "rationale": "Tier-1 explicit correction of an attributable skill's output: it wrote functions with no type hints in a typed codebase. A genuine technical-compliance defect -> raise the gate. The case grades the synthesized lesson: it must read as a technical/code defect and say concretely what to change.",
+  "assertions": {
+    "forbidden": [],
+    "required": [],
+    "rubric": "Grade the `Lesson:` line of the gate. PASS only if it: (1) reads clearly as a TECHNICAL / code defect — about the technical correctness of what the skill produced; (2) names the concrete problem: the generated functions were missing type annotations / type hints; (3) states what correct looks like in actionable terms (the skill should add type annotations / follow the codebase's typing requirement); (4) is generalizable and de-identified. FAIL if it is vague, reads as a generic behavioral note with no technical specifics, or omits the corrective ('what correct looks like')."
+  },
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- PostToolUse recorded that the `api-scaffolder` skill (an identifiable active skill for this turn, so its output is attributable) generated several new Python functions this turn, none of which had type annotations.\n- The UserPromptSubmit primer flagged correction language in the user's latest message.\n\nThe user's latest message at this turn boundary is:\n\"This is wrong — none of these functions have type hints. This codebase is fully typed; every function signature needs annotations.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates. Treat the explicit correction of the skill's untyped output as the Tier-1 signal. Do not ask me clarifying questions first; act on the primed turn state."
+}

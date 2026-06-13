@@ -110,6 +110,34 @@ Write a **generalizable** lesson (the `summary`), not a file-specific note:
 - Good: "PRDs from `prd-writer` should use the `## Problem / ## Solution /
   ## Metrics` template; the generated PRD used a freeform structure."
 
+**Make the lesson clear, actionable, and self-typed.** A person must be able to
+read the `summary` and change the skill so it stops doing this — so the lesson has
+to (a) make the **nature of the defect evident from its wording alone** (no label
+and no separate field; the prose itself carries the type), and (b) state
+concretely what went wrong **and** what correct looks like, at the level of a
+skill instruction. There are two shapes today, and the taxonomy is open — if a
+defect fits neither, describe its nature with the same concreteness:
+
+- **Technical / code defect** — the implementation or technical compliance was
+  wrong. Name the concrete technical thing that failed: e.g. edited files outside
+  the requested scope, wrong class/definition, missing type annotations, wrong
+  API or pattern, non-conforming structure/format — then say what it should be.
+  - Bad (vague): "the migration was wrong."
+  - Good (technical, actionable): "`db-migrator` produced an irreversible
+    migration (a `DROP TABLE` to add a column); migrations must be reversible —
+    use `ALTER TABLE ADD COLUMN` so the change can be rolled back."
+- **Behavioral / flow defect** — the process or behavior was wrong, even if the
+  produced content was fine. Describe **how** the behavior was wrong: e.g. asked
+  for confirmation before every step, skipped a step it had promised, ignored a
+  standing convention, wrong sequencing — then say what the correct behavior is.
+  - Bad (vague): "it behaved wrong."
+  - Good (behavioral, actionable): "`commit-writer` asked for confirmation before
+    every individual file edit; the user expects it to make the planned edits in
+    one pass and confirm once at the end, not gate every step."
+
+A reader should be able to tell which kind of defect it is from the description
+alone, without any tag. Keep the lesson generalizable and de-identified.
+
 Reduce the raw correction to a **minimal** evidence excerpt and **redact it
 yourself, in context, before you show or send it.** Replace, at minimum:
 - email addresses → `[redacted-email]`

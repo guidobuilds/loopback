@@ -4,7 +4,7 @@ A model-driven evaluation suite for loopback's `feedback-detector` skill
 (`loopback/skills/feedback-detector/SKILL.md`). It runs the **real shipped
 skill** through a corpus of synthetic turn-boundary scenarios and grades the
 model's output against per-scenario assertions, so we can measure the skill's
-performance along the three dimensions that matter for it.
+performance along the dimensions that matter for it.
 
 ## What it measures
 
@@ -13,6 +13,7 @@ performance along the three dimensions that matter for it.
 | **precision** | `scenarios/precision/` | stay **silent** | The skill's prime directive: a false positive interrupts the user and trains them to dismiss the gate, which is fatal to adoption. Most of the corpus lives here — iteration, additive scope, preference tweaks, ambiguous reactions, unattributable corrections, de-bounced repeats, and Tier-2-only signals must **not** raise a gate. |
 | **recall** | `scenarios/recall/` | raise the **gate** | The skill must catch genuine, attributable defects — explicit corrections, same-file reverts, repeated re-instruction, repaired omissions — for both skills and subagents. |
 | **redaction** | `scenarios/redaction/` | gate **+ scrubbed excerpt** | On a real defect whose evidence contains PII / secrets / paths, the skill must raise the gate **and** scrub the excerpt in-context before showing it (show-exactly-what-is-sent). The raw secret must never appear in the output; the canonical `[redacted-*]` placeholder must. |
+| **synthesis** | `scenarios/synthesis/` | gate **+ rubric pass** | On a real defect, the lesson the skill writes must be clear, actionable, and **self-typed** — a reader can tell from the wording alone whether it is a technical/code defect or a behavioral/flow defect, and knows what to change. Prose quality can't be checked by substring, so these scenarios carry an `assertions.rubric` graded by a second nested `claude` (the rubric judge). |
 
 The load-bearing signal is the consent-gate sentinel the skill emits as the
 gate's first line **only** when it truly raises the gate:
@@ -43,6 +44,12 @@ bash tests/detector/run.sh --id REC-01
 # tune concurrency / save a full grading report
 bash tests/detector/run.sh --jobs 8 --json /tmp/grading.json
 
+# dump each scenario's full model output (pass OR fail) to a directory, one
+# file per id — the grading report omits the raw output, so use this to inspect
+# the actual gate / Lesson a scenario produced
+bash tests/detector/run.sh --dimension synthesis --save-outputs /tmp/outs
+cat /tmp/outs/SYN-01.txt
+
 # call the runner directly (same flags)
 python3 tests/detector/eval.py --dimension precision
 ```
@@ -68,7 +75,9 @@ A scenario **passes** iff all of:
 2. every `assertions.forbidden` substring is **absent** from the output (e.g. a
    raw API key or email never leaked), **and**
 3. every `assertions.required` substring is **present** in the output (e.g. the
-   `[redacted-token]` placeholder).
+   `[redacted-token]` placeholder), **and**
+4. if `assertions.rubric` is set, the second-pass **rubric judge** returns `PASS`
+   (only evaluated when a gate was rendered — no gate means no lesson to grade).
 
 The runner prints a per-scenario table plus per-dimension and overall pass
 rates, and (with `--json`) writes a full report.
@@ -90,10 +99,15 @@ rates, and (with `--json`) writes a full report.
 }
 ```
 
-- `dimension` — `precision` | `recall` | `redaction` (defaults to the folder name).
+- `dimension` — `precision` | `recall` | `redaction` | `synthesis` (defaults to the folder name).
 - `expect` — `gate` (sentinel must appear) | `silent` (sentinel must not appear).
 - `assertions.forbidden` / `assertions.required` — optional; empty for plain
   precision/recall cases, populated for redaction.
+- `assertions.rubric` — optional prose rubric (used by `synthesis` cases). When
+  present and a gate was rendered, a second nested `claude` grades the gate's
+  `Lesson:` against the rubric and must return `PASS`. Use it to assert qualities
+  substrings can't — e.g. the lesson reads as a technical/code vs behavioral/flow
+  defect, names the concrete problem, and says what correct looks like.
 - `prompt` — primes the turn state in prose (what the hooks recorded, which
   skill/agent was active, the user's latest message) and instructs the model to
   apply the detector's full procedure at the turn boundary.
