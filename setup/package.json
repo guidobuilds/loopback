@@ -1,6 +1,6 @@
 {
   "name": "@guidobuilds/loopback-setup",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Ephemeral installer for loopback — registers the remote MCP endpoint and copies the feedback-detector skill + /harness-feedback command into your AI coding agent (Claude Code, OpenCode, Codex). One-shot via `npx`; no persistent CLI.",
   "type": "module",
   "bin": {

@@ -3,6 +3,33 @@
 All notable changes to loopback are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-06-13
+
+**Clearer, self-typed feedback.** The `feedback-detector` skill now synthesizes
+lessons that make the nature of the defect evident from the wording alone —
+**technical / code** (e.g. out-of-scope edits, wrong class/definition, missing
+typing, wrong API or structure) vs **behavioral / flow** (e.g. over-confirming, a
+skipped promised step, an ignored standing convention) — and that are actionable
+enough for a maintainer to fix the skill. There is no schema or wire-contract
+change: the type is carried by the lesson prose, not a new field.
+
+### Changed
+- **Detector synthesis (Step 5)** now rewrites the lesson to be clear, actionable,
+  and self-typed, with worked good/bad examples per defect type
+  (`loopback/skills/feedback-detector/SKILL.md` and `reference.md`). The
+  `/harness-feedback` manual command mirrors the same guidance.
+- The consent gate format is unchanged (no category line) — the type reads
+  directly from the `Lesson:` text.
+
+### Internal
+- Scaled the feedback-detector eval suite to 30 model-driven scenarios across
+  four dimensions — precision, recall, redaction, and a new **synthesis**
+  dimension graded by an LLM rubric judge — with streaming progress / Ctrl-C
+  handling and a `--save-outputs` flag to inspect per-scenario output
+  (`tests/detector/`).
+
+_No `service/` changes; the loopback service stays at 0.2.0._
+
 ## [0.2.0] — 2026-06-01
 
 **The MCP moved server-side.** The loopback MCP is no longer a client-side stdio
