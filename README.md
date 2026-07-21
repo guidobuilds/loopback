@@ -18,7 +18,7 @@ It is **harness-agnostic** (Claude Code, OpenCode, Codex) and **privacy-first**:
 ## How it works
 
 1. The user corrects a skill / agent output.
-2. A detector skill — driven by the harness through the loopback MCP server — judges **defect vs. iteration** (precision-biased) and synthesizes a generalizable lesson.
+2. A detector skill — driven by the harness through the loopback MCP server — judges **defect vs. iteration** (precision-biased) and synthesizes a generalizable lesson. On Claude Code the optional **loopback plugin** primes this step with a harness-surface inventory (so the lesson can name the real skill/agent) and a write-log (so same-file reverts are caught deterministically); its hooks only prime — they never decide a defect and never send anything.
 3. It shows a consent gate with the exact redacted text that would be sent: **[S]end · [E]dit · [D]ecline**.
 4. On `[S]end`, the skill calls the hosted MCP's `submit_feedback`, which validates, re-checks redaction (quarantining anything that leaked), and stores the record.
 5. The append-only service stores every de-identified record; authors review them via a token-guarded read-back.
@@ -32,6 +32,7 @@ loopback ships these pieces:
 | **Installer** (`@guidobuilds/loopback-setup`) | Ephemeral one-shot `npx` installer. Registers the remote MCP endpoint and copies the skill + `/harness-feedback` command into your harness. No persistent CLI is left behind. | npm package `@guidobuilds/loopback-setup`, source in [`setup/`](setup/) |
 | **MCP server** (hosted by the service) | The universal interface to loopback — one remote tool, `submit_feedback`. The same `feedback-detector` skill drives it under every harness. | mounted at `<service>/mcp`, source in [`service/app/mcp_server.py`](service/app/mcp_server.py) |
 | **Skill + command** (`@guidobuilds/loopback`) | The portable `feedback-detector` skill and `/harness-feedback` command copied into each harness. | npm package `loopback`, source in [`loopback/`](loopback/) |
+| **Claude Code plugin** (priming hooks) | Deterministic hooks that inventory the installed skill/agent surface and log file writes, so the detector can name the real harness component being corrected. Priming only — never decides a defect, never sends. Absent-safe (falls back to self-detection). | source in [`loopback/plugin/claude-code/`](loopback/plugin/claude-code/), marketplace at [`.claude-plugin/`](.claude-plugin/) |
 | **Service** (FastAPI) | Hosts the MCP **and** the append-only ingest + token-guarded read-back. Per-user hashed-token bearer auth, SQLite + Alembic. | [`service/`](service/) |
 
 ## Quick start (developer)
@@ -96,7 +97,7 @@ Package READMEs: [`loopback/`](loopback/README.md) (skill + command) · [`setup/
 
 ```
 setup/      # npm package @guidobuilds/loopback-setup: ephemeral installer (TypeScript + tsup)
-loopback/   # npm package `loopback`: the portable feedback-detector skill + /harness-feedback command
+loopback/   # npm package `loopback`: the feedback-detector skill + /harness-feedback command + the Claude Code priming plugin (plugin/claude-code/)
 service/    # FastAPI: hosts the MCP + the SQLite append-only ingest service (Docker, tests, e2e)
 docs/       # user-facing reference (install, admin, mcp, service, env)
 tests/      # model-driven detector precision suite

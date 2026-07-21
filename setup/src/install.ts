@@ -11,13 +11,18 @@
  *        a. Write ~/.loopback/config.json (mode 0600) if credentials changed.
  *        b. Register the REMOTE MCP endpoint (<service>/mcp) + bearer header in
  *           the chosen agent's config (no local bundle — the MCP is now hosted
- *           by the loopback service).
- *        c. Copy the feedback-detector skill + harness-feedback command.
+ *           by the loopback service). The bearer token stays user-scoped and is
+ *           NEVER carried in the plugin.
+ *        c. Claude Code: install the loopback plugin from the github marketplace
+ *           (skill + command + priming hooks) when the `claude plugin` CLI is
+ *           available; otherwise fall back to copying the skill + command
+ *           (no hooks). OpenCode/Codex: copy the skill + command.
  *   5. Print a green summary of what was written.
  *
- * NO hook injection. NO --automatic-feedback-detection. NO OpenCode plugin
- * (its only purpose was shelling out to the deleted `loopback internal *`
- * commands).
+ * The plugin's hooks only PRIME the detector (a harness-surface inventory + a
+ * per-session write-log); they never decide a defect and never send anything.
+ * They are an enhancement on Claude Code, never a hard dependency: without them
+ * the skill self-detects exactly as before.
  */
 
 import fs from 'node:fs';
@@ -33,6 +38,9 @@ import {
   type Agent,
   detectAgent,
   loopbackConfigPath,
+  PLUGIN_MARKETPLACE_SOURCE,
+  PLUGIN_MARKETPLACE_NAME,
+  PLUGIN_REF,
   claudeDir,
   claudeSkillDir,
   claudeCommandPath,
@@ -177,10 +185,14 @@ function isFullyInstalled(agent: Agent): boolean {
   // so registration + assets are the whole check. Any one missing → reinstall.
   switch (agent) {
     case 'claude-code': {
+      // Fully installed = MCP registered AND the detector assets are present
+      // either as a managed plugin (skill + command + hooks) OR as the legacy
+      // copied skill + command (older CLI without `claude plugin`).
       const hasMcp = isClaudeMcpRegistered();
+      const hasPlugin = isClaudePluginInstalled();
       const hasSkill = exists(claudeSkillDir());
       const hasCmd = exists(claudeCommandPath());
-      return hasMcp && hasSkill && hasCmd;
+      return hasMcp && (hasPlugin || (hasSkill && hasCmd));
     }
     case 'opencode': {
       const cp = exists(opencodeJsoncPath()) ? opencodeJsoncPath() : opencodeJsonPath();
@@ -240,6 +252,34 @@ function isClaudeMcpRegistered(): boolean {
     }
   }
   return false;
+}
+
+/**
+ * True iff the `claude plugin` subcommand exists (newer Claude Code). Probed
+ * with `--help` under `stdio: 'ignore'` so it can never hang on a prompt.
+ */
+function hasClaudePluginCli(): boolean {
+  if (!commandExists('claude')) return false;
+  try {
+    execFileSync('claude', ['plugin', '--help'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** True iff `claude plugin list` reports the loopback plugin as installed. */
+function isClaudePluginInstalled(): boolean {
+  if (!commandExists('claude')) return false;
+  try {
+    const out = execFileSync('claude', ['plugin', 'list'], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).toString();
+    // Match the plugin name whether printed bare or as `loopback@loopback`.
+    return /(^|[\s@])loopback(@loopback)?(\s|$)/m.test(out);
+  } catch {
+    return false;
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -381,6 +421,51 @@ function copyAssetsForAgent(agent: Agent, report: InstallReport): void {
   }
 }
 
+/**
+ * Install the loopback plugin on Claude Code via the github marketplace — this
+ * brings the feedback-detector skill + /harness-feedback command + the priming
+ * hooks as a single managed plugin. Every call uses `stdio: 'ignore'`, so an
+ * interactive prompt receives EOF and cannot hang the installer. Returns false
+ * (recording a warning) so the caller can fall back to copying the assets.
+ */
+function installPluginClaudeCode(report: InstallReport): boolean {
+  // Add (or refresh) the marketplace. If it already exists the add errors, so
+  // fall through to an update; ignore update failures — the install is what
+  // matters.
+  try {
+    execFileSync(
+      'claude',
+      ['plugin', 'marketplace', 'add', PLUGIN_MARKETPLACE_SOURCE],
+      { stdio: 'ignore' }
+    );
+  } catch {
+    try {
+      execFileSync(
+        'claude',
+        ['plugin', 'marketplace', 'update', PLUGIN_MARKETPLACE_NAME],
+        { stdio: 'ignore' }
+      );
+    } catch {
+      /* best-effort refresh */
+    }
+  }
+  try {
+    execFileSync('claude', ['plugin', 'install', PLUGIN_REF], {
+      stdio: 'ignore',
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    report.warnings.push(
+      `claude plugin install failed (${msg.split('\n')[0]}) — copied the skill + command without priming hooks instead.`
+    );
+    return false;
+  }
+  report.files.push(
+    `Claude Code plugin ${PLUGIN_REF} (feedback-detector skill + /harness-feedback + priming hooks)`
+  );
+  return true;
+}
+
 /* ------------------------------------------------------------------ *
  * Entry point                                                          *
  * ------------------------------------------------------------------ */
@@ -429,8 +514,18 @@ export async function runInstall(args: ParsedArgs): Promise<void> {
       break;
   }
 
-  // 4c. Skill + command.
-  copyAssetsForAgent(agent, report);
+  // 4c. Detector assets.
+  //   Claude Code → prefer the managed plugin (skill + command + priming
+  //   hooks); fall back to copying the assets if `claude plugin` is
+  //   unavailable or the install fails.
+  //   OpenCode/Codex → copy the skill + command (they have no equivalent
+  //   hook/plugin JSON format; the skill self-detects there as before).
+  if (agent === 'claude-code' && hasClaudePluginCli()) {
+    const installed = installPluginClaudeCode(report);
+    if (!installed) copyAssetsForAgent(agent, report);
+  } else {
+    copyAssetsForAgent(agent, report);
+  }
 
   // 5. Summary.
   printSummary(report);

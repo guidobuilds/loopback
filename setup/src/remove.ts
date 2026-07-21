@@ -32,6 +32,8 @@ import {
   type Agent,
   detectAgent,
   loopbackDir,
+  PLUGIN_MARKETPLACE_NAME,
+  PLUGIN_REF,
   claudeDir,
   claudeSkillDir,
   claudeCommandPath,
@@ -145,7 +147,38 @@ function removeMcpFromClaudeConfig(filePath: string): boolean {
   return true;
 }
 
+/**
+ * Best-effort uninstall of the loopback plugin + its marketplace entry. Uses
+ * `stdio: 'ignore'` so nothing hangs on a prompt. Returns true iff the plugin
+ * CLI reported the plugin gone (or it was never installed).
+ */
+function uninstallClaudePlugin(report: RemoveReport): boolean {
+  if (!commandExists('claude')) return false;
+  let did = false;
+  try {
+    execFileSync('claude', ['plugin', 'uninstall', PLUGIN_REF], {
+      stdio: 'ignore',
+    });
+    did = true;
+  } catch {
+    /* not installed, or older CLI without `claude plugin` — fine */
+  }
+  try {
+    execFileSync('claude', ['plugin', 'marketplace', 'remove', PLUGIN_MARKETPLACE_NAME], {
+      stdio: 'ignore',
+    });
+    did = true;
+  } catch {
+    /* marketplace not added — fine */
+  }
+  if (did) report.removed.push(`Claude Code plugin ${PLUGIN_REF}`);
+  return did;
+}
+
 function removeClaudeCode(report: RemoveReport): void {
+  // 0. Managed plugin (skill + command + priming hooks), if installed that way.
+  uninstallClaudePlugin(report);
+
   // 1. MCP registration. Try the CLI first; if that fails (or claude isn't
   // on PATH), fall back to direct edits of ~/.claude.json and
   // ~/.claude/settings.json. Any one of these paths is a valid surface.

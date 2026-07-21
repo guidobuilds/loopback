@@ -3,6 +3,45 @@
 All notable changes to loopback are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-07-21
+
+**Proactive priming via a Claude Code plugin.** loopback now ships a real Claude
+Code **plugin** (`loopback/plugin/claude-code/`, installable from the github
+marketplace) whose hooks *prime* the `feedback-detector` deterministically — so the
+detector can name the **real harness component** a user is correcting instead of
+guessing, and can catch same-file reverts even after the write scrolled out of
+context. This is the priming layer `SKILL.md` always anticipated: **hooks only prime;
+they never decide a defect and never send anything.** Where the plugin is absent
+(OpenCode, Codex, older Claude Code) the skill self-detects exactly as before.
+
+### Added
+- **Claude Code plugin** with `.claude-plugin/plugin.json`, a repo-root
+  `.claude-plugin/marketplace.json`, `hooks/hooks.json`, and POSIX-sh hook scripts:
+  - **SessionStart** builds a *harness-surface inventory* (installed skill/agent ids)
+    and injects it so Step 3 attribution can name a real component.
+  - **PostToolUse** appends written `file_path`s to a per-session *write-log* so the
+    Step 1 same-file-revert signal is deterministic.
+  - **UserPromptSubmit** injects a hard-debounced, correction-lexicon-gated nudge that
+    re-states silence-by-default (never asserts a defect).
+  - All scripts are jq-based, always exit 0, and degrade to `{}` if jq is absent — a
+    priming failure never breaks a session. State lives locally under
+    `~/.loopback/state/<session>/` and is never sent.
+- **Installer** now installs the plugin on Claude Code via
+  `claude plugin marketplace add` + `claude plugin install`, falling back to the
+  legacy skill+command copy when `claude plugin` is unavailable. The MCP bearer token
+  stays user-scoped and is never carried in the plugin.
+- **Tests:** a plugin drift guard + manifest-consistency + hook-behavior suite
+  (`loopback/test/`), plus attribution assertions on the primed recall scenarios and a
+  precision-with-priming anti-regression scenario (`tests/detector/`).
+
+### Changed
+- **`feedback-detector` skill** (`SKILL.md` + `reference.md`) now *consumes* priming
+  when present (inventory + write-log) to strengthen Signal 2 and Step 3 attribution,
+  while keeping the pure self-detection fallback and every precision gate unchanged.
+  `harness-feedback.md` mirrors the guidance.
+
+_No `service/` changes; the loopback service stays at 0.2.0._
+
 ## [0.3.0] — 2026-06-13
 
 **Clearer, self-typed feedback.** The `feedback-detector` skill now synthesizes

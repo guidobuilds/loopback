@@ -1,13 +1,18 @@
 {
   "name": "@guidobuilds/loopback",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
-  "description": "Harness-agnostic feedback loop for AI coding agents (Claude Code, OpenCode, Codex): the portable `feedback-detector` skill and `/harness-feedback` command. The MCP server is now hosted by the loopback service (remote MCP); clients are wired up via `npx @guidobuilds/loopback-setup`.",
+  "description": "Harness-agnostic feedback loop for AI coding agents (Claude Code, OpenCode, Codex): the portable `feedback-detector` skill, the `/harness-feedback` command, and the Claude Code plugin whose priming hooks let the detector name the real harness component a user is correcting. The MCP server is hosted by the loopback service (remote MCP); clients are wired up via `npx @guidobuilds/loopback-setup`.",
   "files": [
     "skills",
     "commands",
+    "plugin",
     "README.md"
   ],
+  "scripts": {
+    "prepare-plugin": "node scripts/prepare-plugin.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
   "engines": {
     "node": ">=18"
   },

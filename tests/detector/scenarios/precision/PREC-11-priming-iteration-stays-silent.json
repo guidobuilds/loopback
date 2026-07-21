@@ -1,0 +1,9 @@
+{
+  "id": "PREC-11",
+  "dimension": "precision",
+  "title": "rich priming present, but the message is iteration (new requirement) -> silent",
+  "expect": "silent",
+  "rationale": "Anti-regression guard for the priming layer: even when the plugin injects a full harness-surface inventory AND a write-log (so attribution and same-file signals are readily available), an additive new requirement is iteration, not a defect. Priming must NOT push the model to over-raise. Step 2 declines -> NO consent gate.",
+  "assertions": { "forbidden": [], "required": [] },
+  "prompt": "You are in a live Claude Code session with the loopback plugin loaded (its feedback-detector skill is available).\n\nTurn state primed by the plugin hooks for this turn boundary:\n- SessionStart injected a harness-surface inventory: installed skills=[prd-writer, api-scaffolder]; agents=[db-migration].\n- PostToolUse recorded that the `api-scaffolder` skill (an identifiable active skill this turn) used a Write tool call to create the file users_endpoint.ts implementing a GET /users list endpoint.\n- The UserPromptSubmit primer surfaced the write-log tail and inventory.\n\nThe user's latest message at this turn boundary is:\n\"Great, now also add pagination to the /users endpoint and handle the empty-list case.\"\n\nApply the feedback-detector skill's full procedure to THIS turn boundary now and produce exactly the output the skill dictates. Note that this is an ADDITIVE new requirement about the skill's output, not a correction/repair of it, so the defect-vs-iteration filter must decline. The rich priming does not lower the precision bar. Do not ask me clarifying questions first; act on the primed turn state."
+}

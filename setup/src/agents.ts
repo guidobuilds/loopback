@@ -30,6 +30,24 @@ export function loopbackConfigPath(): string {
   return path.join(loopbackDir(), 'config.json');
 }
 
+/** Per-session priming state written by the Claude Code plugin's hooks. */
+export function loopbackStateDir(): string {
+  return path.join(loopbackDir(), 'state');
+}
+
+/* ---- Claude Code plugin (priming hooks) --------------------------------- */
+
+/**
+ * The plugin ships in the loopback git repo (github source), so a plugin
+ * install does not need any files from this installer bundle — Claude Code
+ * fetches the marketplace itself. These identifiers are the single source of
+ * truth shared by install.ts and remove.ts.
+ */
+export const PLUGIN_MARKETPLACE_SOURCE = 'guidobuilds/loopback';
+export const PLUGIN_MARKETPLACE_NAME = 'loopback';
+/** `<plugin>@<marketplace>` as `claude plugin install` expects it. */
+export const PLUGIN_REF = 'loopback@loopback';
+
 /* ---- Claude Code -------------------------------------------------------- */
 
 export function claudeDir(): string {

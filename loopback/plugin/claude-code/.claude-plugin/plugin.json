@@ -1,0 +1,13 @@
+{
+  "name": "loopback",
+  "version": "0.4.0",
+  "description": "Priming layer for loopback's feedback-detector. Deterministic Claude Code hooks inventory the installed skill/agent surface and log file writes so the detector can name the REAL harness component a user is correcting. Hooks only prime context — they never decide a defect and never send anything.",
+  "author": {
+    "name": "Guido Caffa",
+    "email": "caffaguido@gmail.com"
+  },
+  "homepage": "https://github.com/guidobuilds/loopback",
+  "repository": "https://github.com/guidobuilds/loopback",
+  "license": "MIT",
+  "keywords": ["loopback", "feedback", "claude-code", "hooks", "skills"]
+}

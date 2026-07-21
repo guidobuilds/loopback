@@ -1,0 +1,18 @@
+{
+  "name": "loopback",
+  "owner": {
+    "name": "Guido Caffa",
+    "url": "https://github.com/guidobuilds/loopback"
+  },
+  "metadata": {
+    "description": "loopback — the feedback-detector skill + /harness-feedback command, plus the priming hooks that let the detector name the real harness component a user is correcting.",
+    "version": "0.4.0"
+  },
+  "plugins": [
+    {
+      "name": "loopback",
+      "source": "./loopback/plugin/claude-code",
+      "description": "loopback feedback-detector + deterministic priming hooks (inventory + write-log). Hooks never decide a defect and never send anything."
+    }
+  ]
+}
